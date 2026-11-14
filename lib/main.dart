@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/app_colors.dart';
+import 'core/auth/app_user.dart';
+import 'core/auth/auth_service.dart';
+import 'core/sphere_page_route.dart';
 import 'features/auth/presentation/login_page.dart';
+import 'features/home/data/home_models.dart';
 import 'features/home/presentation/home_page.dart';
+import 'features/organization/data/org_models.dart';
+import 'features/organization/presentation/org_dashboard_page.dart';
 
 void main() => runApp(const SkillSphereApp());
 
@@ -12,27 +18,57 @@ final navigatorKey = GlobalKey<NavigatorState>();
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
 
 // ---------------------------------------------------------------------------
-// TEMPORARY test login – used only until the Spring Boot auth API is ready.
-// Remove these two values before the app is deployed anywhere.
+// TEMPORARY test logins (see lib/core/auth/auth_service.dart):
+//   Super Admin (HRD) : hrd@gmail.com   / hrd123   → Overall Dashboard
+//   Admin (Team Lead) : tl@gmail.com    / tl123    → Home + "My Team"
+//   End User          : admin@gmail.com / root123  → Home
 // ---------------------------------------------------------------------------
-const _testEmail = 'admin@gmail.com';
-const _testPassword = 'root123';
 
 /// Called by the login form's Sign In button.
 Future<void> _handleSignIn(String email, String password, bool rememberMe) async {
-  // Short pause so the button's loading state is visible, like a real API call.
-  await Future<void>.delayed(const Duration(milliseconds: 500));
-
-  final emailMatches = email.trim().toLowerCase() == _testEmail;
-  final passwordMatches = password == _testPassword;
-
-  if (emailMatches && passwordMatches) {
+  try {
+    final user = await AuthService.instance.signIn(email, password);
     messengerKey.currentState?.hideCurrentSnackBar();
     // pushReplacement: the browser/back button won't return to the login page.
-    navigatorKey.currentState?.pushReplacement(HomePage.route());
-  } else {
-    _showMessage('Incorrect email or password. Please try again.');
+    navigatorKey.currentState?.pushReplacement(_landingRouteFor(user));
+  } on AuthException catch (e) {
+    _showMessage(e.message);
   }
+}
+
+/// Where each role lands after signing in.
+Route<void> _landingRouteFor(AppUser user) => switch (user.role) {
+      UserRole.superAdmin => OrgDashboardPage.route(
+          user: user,
+          data: OrgData.sample,
+          onLogout: _handleLogout,
+        ),
+      UserRole.admin => HomePage.route(
+          user: user,
+          data: _homeDataFor(user),
+          // Team Leads see their OWN department only.
+          team: OrgData.sample.employeesIn(user.department),
+          onLogout: _handleLogout,
+        ),
+      UserRole.endUser => HomePage.route(
+          user: user,
+          data: _homeDataFor(user),
+          onLogout: _handleLogout,
+        ),
+    };
+
+/// Sample Home data greeting the signed-in user by name.
+HomeData _homeDataFor(AppUser user) =>
+    HomeData.sample.copyWith(firstName: user.firstName, initials: user.initials);
+
+void _handleLogout() {
+  AuthService.instance.signOut();
+  messengerKey.currentState?.hideCurrentSnackBar();
+  // Clear every page so Back can't return to the signed-in screens.
+  navigatorKey.currentState?.pushAndRemoveUntil(
+    SpherePageRoute<void>(builder: (_) => _buildLoginPage()),
+    (route) => false,
+  );
 }
 
 void _handleForgotPassword() {
@@ -47,6 +83,11 @@ void _showMessage(String text) {
       behavior: SnackBarBehavior.floating,
     ));
 }
+
+Widget _buildLoginPage() => LoginPage(
+      onSignIn: _handleSignIn,
+      onForgotPassword: _handleForgotPassword,
+    );
 
 class SkillSphereApp extends StatelessWidget {
   const SkillSphereApp({super.key});
@@ -64,10 +105,7 @@ class SkillSphereApp extends StatelessWidget {
         scaffoldBackgroundColor: AppColors.skyBottom,
         textTheme: GoogleFonts.interTextTheme(),
       ),
-      home: LoginPage(
-        onSignIn: _handleSignIn,
-        onForgotPassword: _handleForgotPassword,
-      ),
+      home: _buildLoginPage(),
     );
   }
 }

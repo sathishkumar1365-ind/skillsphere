@@ -6,20 +6,30 @@ import 'package:flutter/scheduler.dart';
 import '../../data/home_models.dart';
 import '../home_theme.dart';
 
-/// The hero's 3D skill globe: a spinning wireframe sphere with the
-/// readiness score at its core, and skill chips orbiting around it in 3D.
-/// Chips behind the globe are hidden by it and fade, chips in front grow
-/// slightly — all from a single ticker, no 3D engine needed.
+/// The hero's 3D skill globe: a spinning wireframe sphere with a score at its
+/// core, and skill chips orbiting around it in 3D. Chips behind the globe are
+/// hidden by it and fade, chips in front grow slightly.
+///
+/// Performance notes (Flutter web):
+/// * The chips and the core are built ONCE and cached as pictures
+///   (RepaintBoundary). Each frame only moves them with a [Flow], so there is
+///   no rebuild and no re-layout while the globe turns.
+/// * The animation pauses automatically while the globe is scrolled out of
+///   view, so it costs nothing when you read the rest of the page.
 class SkillGlobe extends StatefulWidget {
   const SkillGlobe({
     super.key,
     required this.readinessPercent,
     required this.chips,
+    this.caption = 'PROJECT READY',
     this.size = 560,
   });
 
   final int readinessPercent;
   final List<GlobeChip> chips;
+
+  /// Small label under the percentage in the core.
+  final String caption;
 
   /// Design size. The globe scales down to fit narrower screens.
   final double size;
@@ -31,37 +41,91 @@ class SkillGlobe extends StatefulWidget {
 class _SkillGlobeState extends State<SkillGlobe>
     with SingleTickerProviderStateMixin {
   static const double _startSeconds = 6; // a pleasant first pose
-  static const double _spinPeriod = 40; // seconds per globe turn
-  static const double _orbitPeriod = 32; // seconds per chip orbit
-  static const double _floatPeriod = 7; // seconds per gentle bob
-  static const double _globeRadius = 150;
-  static const double _orbitRadius = 250;
-  static const double _coreSize = 210;
 
-  /// Vertical offset of each chip's orbit, so they don't share one ring.
-  static const List<double> _chipHeights = [-34, 34, -67, 67, -17, -84, 45, -45];
+  late final _GlobeScene _scene = _GlobeScene(
+    size: widget.size,
+    chipCount: widget.chips.length,
+  )..update(_startSeconds);
 
-  final ValueNotifier<double> _seconds = ValueNotifier<double>(_startSeconds);
-  late final Ticker _ticker = createTicker((elapsed) {
-    _seconds.value =
-        _startSeconds + elapsed.inMicroseconds / Duration.microsecondsPerSecond;
-  });
+  late final Ticker _ticker = createTicker(_onTick);
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.of(context).disableAnimations;
-    if (reduceMotion && _ticker.isActive) {
-      _ticker.stop();
-    } else if (!reduceMotion && !_ticker.isActive) {
+  /// Time the globe has already turned before the last pause.
+  Duration _carried = Duration.zero;
+  Duration _lastElapsed = Duration.zero;
+
+  ScrollPosition? _position;
+  double _screenHeight = 0;
+  bool _onScreen = true;
+  bool _reduceMotion = false;
+  bool _checkScheduled = false;
+
+  void _onTick(Duration elapsed) {
+    _lastElapsed = elapsed;
+    _scene.update(_startSeconds +
+        (_carried + elapsed).inMicroseconds / Duration.microsecondsPerSecond);
+  }
+
+  /// Runs the ticker only while the globe is visible and motion is allowed.
+  void _syncTicker() {
+    final shouldRun = _onScreen && !_reduceMotion;
+    if (shouldRun && !_ticker.isActive) {
       _ticker.start();
+    } else if (!shouldRun && _ticker.isActive) {
+      _carried += _lastElapsed;
+      _lastElapsed = Duration.zero;
+      _ticker.stop();
     }
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _screenHeight = MediaQuery.sizeOf(context).height;
+
+    final position = Scrollable.maybeOf(context)?.position;
+    if (!identical(position, _position)) {
+      _position?.removeListener(_scheduleVisibilityCheck);
+      _position = position;
+      _position?.addListener(_scheduleVisibilityCheck);
+    }
+    _syncTicker();
+    _scheduleVisibilityCheck();
+  }
+
+  @override
+  void didUpdateWidget(SkillGlobe oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chips.length != widget.chips.length) {
+      _scene.chipCount = widget.chips.length;
+      _scene.update(_startSeconds +
+          (_carried + _lastElapsed).inMicroseconds /
+              Duration.microsecondsPerSecond);
+    }
+  }
+
+  void _scheduleVisibilityCheck() {
+    if (_checkScheduled) return;
+    _checkScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkScheduled = false;
+      if (!mounted) return;
+      final box = context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return;
+      final top = box.localToGlobal(Offset.zero).dy;
+      final visible = top + box.size.height > 0 && top < _screenHeight;
+      if (visible != _onScreen) {
+        _onScreen = visible;
+        _syncTicker();
+      }
+    });
+  }
+
+  @override
   void dispose() {
+    _position?.removeListener(_scheduleVisibilityCheck);
     _ticker.dispose();
-    _seconds.dispose();
+    _scene.dispose();
     super.dispose();
   }
 
@@ -72,8 +136,8 @@ class _SkillGlobeState extends State<SkillGlobe>
         .join(', ');
     return Semantics(
       image: true,
-      label: 'Skill globe. Project readiness ${widget.readinessPercent} percent. '
-          'Orbiting skills: $orbiting.',
+      label: 'Skill globe. ${widget.readinessPercent} percent '
+          '${widget.caption.toLowerCase()}. Orbiting skills: $orbiting.',
       child: ExcludeSemantics(
         child: FittedBox(
           fit: BoxFit.scaleDown,
@@ -81,9 +145,22 @@ class _SkillGlobeState extends State<SkillGlobe>
             width: widget.size,
             height: widget.size,
             child: RepaintBoundary(
-              child: ValueListenableBuilder<double>(
-                valueListenable: _seconds,
-                builder: (context, seconds, _) => _buildScene(seconds),
+              child: Flow(
+                clipBehavior: Clip.none,
+                delegate: _GlobeFlowDelegate(_scene),
+                children: [
+                  CustomPaint(painter: _RingPainter(_scene, front: false)),
+                  RepaintBoundary(
+                    child: _GlobeCore(
+                      percent: widget.readinessPercent,
+                      caption: widget.caption,
+                      size: _GlobeScene.coreSize,
+                    ),
+                  ),
+                  CustomPaint(painter: _RingPainter(_scene, front: true)),
+                  for (final chip in widget.chips)
+                    RepaintBoundary(child: _OrbitChip(chip: chip)),
+                ],
               ),
             ),
           ),
@@ -91,100 +168,115 @@ class _SkillGlobeState extends State<SkillGlobe>
       ),
     );
   }
+}
 
-  Widget _buildScene(double t) {
-    final half = widget.size / 2;
+/// Everything that moves, recomputed once per frame and shared by the
+/// ring painters and the chip layout.
+class _GlobeScene extends ChangeNotifier {
+  _GlobeScene({required this.size, required this.chipCount});
+
+  final double size;
+  int chipCount;
+
+  static const double coreSize = 210;
+  static const double _spinPeriod = 40; // seconds per globe turn
+  static const double _orbitPeriod = 32; // seconds per chip orbit
+  static const double _floatPeriod = 7; // seconds per gentle bob
+  static const double _globeRadius = 150;
+  static const double _orbitRadius = 250;
+
+  /// Vertical offset of each chip's orbit, so they don't share one ring.
+  static const List<double> _chipHeights = [-34, 34, -67, 67, -17, -84, 45, -45];
+
+  Path backRings = Path();
+  Path frontRings = Path();
+  Offset coreCenter = Offset.zero;
+  List<_ProjectedPoint> chipPoints = const [];
+  List<double> chipOpacity = const [];
+
+  /// Chip indexes behind / in front of the core, painted back to front.
+  List<int> behind = const [];
+  List<int> ahead = const [];
+
+  void update(double t) {
+    final half = size / 2;
     final floatY = math.sin(t * 2 * math.pi / _floatPeriod) * 8;
     final projector = _Projector(center: Offset(half, half + floatY));
-    final spin = t / _spinPeriod * 2 * math.pi;
+    coreCenter = projector.center;
 
-    // Wireframe rings, split into the half behind the core and the half in front.
-    final backRings = Path();
-    final frontRings = Path();
-    _addRings(projector, spin, backRings, frontRings);
+    final back = Path();
+    final front = Path();
+    _addRings(projector, t / _spinPeriod * 2 * math.pi, back, front);
+    backRings = back;
+    frontRings = front;
 
-    // Orbiting chips.
-    final behind = <_PlacedChip>[];
-    final ahead = <_PlacedChip>[];
-    final chips = widget.chips;
-    for (var i = 0; i < chips.length; i++) {
-      final angle = (t / _orbitPeriod + i / chips.length) * 2 * math.pi;
+    final points = <_ProjectedPoint>[];
+    final opacity = <double>[];
+    final behindList = <int>[];
+    final aheadList = <int>[];
+    for (var i = 0; i < chipCount; i++) {
+      final angle = (t / _orbitPeriod + i / chipCount) * 2 * math.pi;
       final point = projector.project(
         _orbitRadius * math.sin(angle),
         _chipHeights[i % _chipHeights.length],
         _orbitRadius * math.cos(angle),
       );
       final facing = (1 + math.cos(angle)) / 2; // 1 = front, 0 = back
-      final placed = _PlacedChip(chips[i], point, 0.45 + 0.55 * facing);
-      (point.depth < 0 ? behind : ahead).add(placed);
+      points.add(point);
+      // Front half fully opaque (no extra layer); the back half fades.
+      opacity.add(math.min(1.0, 0.45 + 0.76 * facing));
+      (point.depth < 0 ? behindList : aheadList).add(i);
     }
-    behind.sort((a, b) => a.point.depth.compareTo(b.point.depth));
-    ahead.sort((a, b) => a.point.depth.compareTo(b.point.depth));
+    int byDepth(int a, int b) => points[a].depth.compareTo(points[b].depth);
+    behindList.sort(byDepth);
+    aheadList.sort(byDepth);
 
-    final center = projector.center;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _RingPainter(backRings, const Color.fromRGBO(31, 95, 209, 0.2)),
-          ),
-        ),
-        for (final chip in behind) _positionedChip(chip),
-        Positioned(
-          left: center.dx - _coreSize / 2,
-          top: center.dy - _coreSize / 2,
-          child: _GlobeCore(percent: widget.readinessPercent, size: _coreSize),
-        ),
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _RingPainter(frontRings, const Color.fromRGBO(31, 95, 209, 0.42)),
-          ),
-        ),
-        for (final chip in ahead) _positionedChip(chip),
-      ],
-    );
+    chipPoints = points;
+    chipOpacity = opacity;
+    behind = behindList;
+    ahead = aheadList;
+    notifyListeners();
   }
 
-  Widget _positionedChip(_PlacedChip chip) {
-    return Positioned(
-      left: chip.point.offset.dx,
-      top: chip.point.offset.dy,
-      child: FractionalTranslation(
-        translation: const Offset(-0.5, -0.5),
-        child: Transform.scale(
-          scale: chip.point.scale,
-          child: Opacity(
-            opacity: chip.opacity,
-            child: _OrbitChip(chip: chip.chip),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _addRings(_Projector projector, double spin, Path back, Path front) {
-    const steps = 72;
+  /// Builds the wireframe, split into the half behind the core and the half
+  /// in front. Each continuous run is added as ONE polyline (a few calls per
+  /// frame instead of hundreds).
+  static void _addRings(_Projector projector, double spin, Path back, Path front) {
+    const steps = 64;
     const r = _globeRadius;
     final cosSpin = math.cos(spin);
     final sinSpin = math.sin(spin);
 
     void addRing(_Vec3 Function(double angle) pointAt) {
+      var run = <Offset>[];
+      bool? runInFront;
       _ProjectedPoint? previous;
+
+      void flush() {
+        if (run.length > 1 && runInFront != null) {
+          (runInFront! ? front : back).addPolygon(run, false);
+        }
+      }
+
       for (var i = 0; i <= steps; i++) {
         final v = pointAt(i / steps * 2 * math.pi);
         // Spin the globe around its vertical axis.
         final x = v.x * cosSpin + v.z * sinSpin;
         final z = -v.x * sinSpin + v.z * cosSpin;
         final p = projector.project(x, v.y, z);
-        if (previous != null) {
-          final target = (previous.depth + p.depth) < 0 ? back : front;
-          target
-            ..moveTo(previous.offset.dx, previous.offset.dy)
-            ..lineTo(p.offset.dx, p.offset.dy);
+        final prev = previous;
+        if (prev != null) {
+          final inFront = (prev.depth + p.depth) >= 0;
+          if (inFront != runInFront) {
+            flush();
+            run = <Offset>[prev.offset];
+            runInFront = inFront;
+          }
+          run.add(p.offset);
         }
         previous = p;
       }
+      flush();
     }
 
     // Six meridians, 30° apart.
@@ -203,19 +295,78 @@ class _SkillGlobeState extends State<SkillGlobe>
   }
 }
 
+/// Places the cached core and chips each frame without rebuilding them.
+class _GlobeFlowDelegate extends FlowDelegate {
+  _GlobeFlowDelegate(this.scene) : super(repaint: scene);
+
+  final _GlobeScene scene;
+
+  static const int _backRings = 0;
+  static const int _core = 1;
+  static const int _frontRings = 2;
+  static const int _firstChip = 3;
+
+  @override
+  BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) {
+    if (i == _backRings || i == _frontRings) {
+      return BoxConstraints.tight(constraints.biggest);
+    }
+    return constraints.loosen();
+  }
+
+  @override
+  void paintChildren(FlowPaintingContext context) {
+    context.paintChild(_backRings);
+    for (final chip in scene.behind) {
+      _paintChip(context, chip);
+    }
+    final coreSize = context.getChildSize(_core) ?? Size.zero;
+    context.paintChild(
+      _core,
+      transform: Matrix4.translationValues(
+        scene.coreCenter.dx - coreSize.width / 2,
+        scene.coreCenter.dy - coreSize.height / 2,
+        0,
+      ),
+    );
+    context.paintChild(_frontRings);
+    for (final chip in scene.ahead) {
+      _paintChip(context, chip);
+    }
+  }
+
+  void _paintChip(FlowPaintingContext context, int chip) {
+    final index = _firstChip + chip;
+    if (index >= context.childCount || chip >= scene.chipPoints.length) return;
+    final size = context.getChildSize(index) ?? Size.zero;
+    final point = scene.chipPoints[chip];
+    final s = point.scale;
+    final transform = Matrix4.translationValues(
+      point.offset.dx - size.width * s / 2,
+      point.offset.dy - size.height * s / 2,
+      0,
+    )..multiply(Matrix4.diagonal3Values(s, s, 1));
+    context.paintChild(index, transform: transform, opacity: scene.chipOpacity[chip]);
+  }
+
+  @override
+  bool shouldRepaint(_GlobeFlowDelegate oldDelegate) =>
+      !identical(oldDelegate.scene, scene);
+}
+
 /// Perspective camera looking slightly down on the globe.
 class _Projector {
   _Projector({
     required this.center,
     double tiltXDegrees = -14,
     double tiltZDegrees = -4,
-  })  : perspective = 1400, _cosX = math.cos(tiltXDegrees * math.pi / 180),
+  })  : _cosX = math.cos(tiltXDegrees * math.pi / 180),
         _sinX = math.sin(tiltXDegrees * math.pi / 180),
         _cosZ = math.cos(tiltZDegrees * math.pi / 180),
         _sinZ = math.sin(tiltZDegrees * math.pi / 180);
 
   final Offset center;
-  final double perspective;
+  static const double perspective = 1400;
   final double _cosX;
   final double _sinX;
   final double _cosZ;
@@ -252,39 +403,44 @@ class _ProjectedPoint {
   final double scale;
 }
 
-class _PlacedChip {
-  const _PlacedChip(this.chip, this.point, this.opacity);
-  final GlobeChip chip;
-  final _ProjectedPoint point;
-  final double opacity;
-}
-
 class _RingPainter extends CustomPainter {
-  _RingPainter(this.path, this.color);
+  _RingPainter(this.scene, {required this.front}) : super(repaint: scene);
 
-  final Path path;
-  final Color color;
+  final _GlobeScene scene;
+  final bool front;
+
+  static final Paint _backPaint = Paint()
+    ..color = const Color.fromRGBO(31, 95, 209, 0.2)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.5
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+
+  static final Paint _frontPaint = Paint()
+    ..color = const Color.fromRGBO(31, 95, 209, 0.42)
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.5
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round,
+      front ? scene.frontRings : scene.backRings,
+      front ? _frontPaint : _backPaint,
     );
   }
 
   @override
-  bool shouldRepaint(_RingPainter oldDelegate) => true;
+  bool shouldRepaint(_RingPainter oldDelegate) =>
+      !identical(oldDelegate.scene, scene) || oldDelegate.front != front;
 }
 
 class _GlobeCore extends StatelessWidget {
-  const _GlobeCore({required this.percent, required this.size});
+  const _GlobeCore({required this.percent, required this.caption, required this.size});
 
   final int percent;
+  final String caption;
   final double size;
 
   @override
@@ -307,10 +463,10 @@ class _GlobeCore extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Color.fromRGBO(31, 95, 209, 0.55),
-            blurRadius: 70,
-            spreadRadius: -30,
-            offset: Offset(0, 40),
+            color: Color.fromRGBO(31, 95, 209, 0.5),
+            blurRadius: 56,
+            spreadRadius: -26,
+            offset: Offset(0, 36),
           ),
         ],
       ),
@@ -320,7 +476,7 @@ class _GlobeCore extends StatelessWidget {
           Text('$percent%', style: HomeText.display(56, height: 1.0)),
           const SizedBox(height: 4),
           Text(
-            'PROJECT READY',
+            caption,
             style: HomeText.body(13,
                 weight: FontWeight.w700,
                 color: HomeColors.ink,
@@ -346,10 +502,10 @@ class _OrbitChip extends StatelessWidget {
         borderRadius: BorderRadius.all(Radius.circular(999)),
         boxShadow: [
           BoxShadow(
-            color: Color.fromRGBO(15, 27, 45, 0.45),
-            blurRadius: 24,
-            spreadRadius: -12,
-            offset: Offset(0, 10),
+            color: Color.fromRGBO(15, 27, 45, 0.30),
+            blurRadius: 14,
+            spreadRadius: -6,
+            offset: Offset(0, 8),
           ),
         ],
       ),

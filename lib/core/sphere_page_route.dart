@@ -7,7 +7,7 @@ import 'package:flutter/material.dart';
 ///
 /// ```dart
 /// Navigator.of(context).pushReplacement(
-///   SpherePageRoute(builder: (_) => const HomePage()),
+///   SpherePageRoute(builder: (_) => HomePage(user: user)),
 /// );
 /// ```
 class SpherePageRoute<T> extends PageRouteBuilder<T> {
@@ -39,10 +39,15 @@ class SpherePageRoute<T> extends PageRouteBuilder<T> {
         child: child,
         builder: (context, child) {
           final remaining = 1 - curved.value;
-          final matrix = Matrix4.identity()
-            ..setEntry(3, 2, 0.0012)
-            ..multiply(Matrix4.translationValues(0, 50 * remaining, 0))
-            ..multiply(Matrix4.rotationX(-8 * math.pi / 180 * remaining));
+          // When the transition has finished, an identity matrix lets
+          // Flutter drop the transform layer, so the page itself scrolls
+          // without an extra 3D layer on top of it.
+          final matrix = remaining == 0
+              ? Matrix4.identity()
+              : (Matrix4.identity()
+                ..setEntry(3, 2, 0.0012)
+                ..multiply(Matrix4.translationValues(0, 50 * remaining, 0))
+                ..multiply(Matrix4.rotationX(-8 * math.pi / 180 * remaining)));
           return Transform(
             alignment: Alignment.topCenter,
             transform: matrix,

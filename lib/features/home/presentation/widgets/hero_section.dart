@@ -15,11 +15,15 @@ class HeroSection extends StatelessWidget {
     required this.data,
     required this.onUpdateSkills,
     required this.onSeeGaps,
+    this.onViewTeam,
   });
 
   final HomeData data;
   final VoidCallback onUpdateSkills;
   final VoidCallback onSeeGaps;
+
+  /// Team Leads only: shows a "View my team" button.
+  final VoidCallback? onViewTeam;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +41,7 @@ class HeroSection extends StatelessWidget {
             titleSize: titleSize,
             onUpdateSkills: onUpdateSkills,
             onSeeGaps: onSeeGaps,
+            onViewTeam: onViewTeam,
           ),
         );
         final globe = Center(
@@ -81,12 +86,14 @@ class _Intro extends StatelessWidget {
     required this.titleSize,
     required this.onUpdateSkills,
     required this.onSeeGaps,
+    required this.onViewTeam,
   });
 
   final HomeData data;
   final double titleSize;
   final VoidCallback onUpdateSkills;
   final VoidCallback onSeeGaps;
+  final VoidCallback? onViewTeam;
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +144,12 @@ class _Intro extends StatelessWidget {
               onPressed: onSeeGaps,
               variant: PillVariant.outline,
             ),
+            if (onViewTeam != null)
+              PillButton(
+                label: 'View my team',
+                onPressed: onViewTeam,
+                variant: PillVariant.outline,
+              ),
           ],
         ),
         const SizedBox(height: 22),

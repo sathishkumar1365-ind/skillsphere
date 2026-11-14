@@ -104,43 +104,50 @@ class _CloudPainter extends CustomPainter {
   final ScrollController? scroll;
   final double parallax;
 
+  /// Each cloud's outline, built once. Base and puffs are one path, so a
+  /// single see-through fill covers their overlap evenly – no extra layer
+  /// (saveLayer) is needed every frame, which keeps scrolling smooth.
+  static final List<Path> _shapes = [
+    for (final cloud in _clouds)
+      () {
+        final path = Path()
+          ..addRRect(RRect.fromRectAndRadius(
+            Rect.fromLTWH(0, cloud.height - cloud.baseHeight, cloud.width,
+                cloud.baseHeight),
+            Radius.circular(cloud.baseHeight / 2),
+          ));
+        for (final puff in cloud.puffs) {
+          path.addOval(Rect.fromLTWH(
+              puff.left, puff.top, puff.diameter, puff.diameter));
+        }
+        return path;
+      }(),
+  ];
+
+  static final List<Paint> _paints = [
+    for (final cloud in _clouds)
+      Paint()..color = Color.fromRGBO(255, 255, 255, cloud.opacity),
+  ];
+
   @override
   void paint(Canvas canvas, Size size) {
     final t = seconds.value;
     final controller = scroll;
     final scrollOffset =
         (controller != null && controller.hasClients) ? controller.offset : 0.0;
-    final white = Paint()..color = const Color(0xFFFFFFFF);
 
-    for (final cloud in _clouds) {
+    for (var i = 0; i < _clouds.length; i++) {
+      final cloud = _clouds[i];
       final progress = ((t + cloud.phase) / cloud.period) % 1.0;
       final x = -0.35 * size.width + progress * 1.5 * size.width;
       final y = cloud.top - scrollOffset * parallax;
       if (y + cloud.height + 40 < 0 || y - 60 > size.height) continue;
 
-      // Paint each cloud opaque into a layer, then fade the whole layer, so
-      // overlapping puffs don't show darker seams.
-      final bounds =
-          Rect.fromLTWH(x - 10, y - 60, cloud.width + 20, cloud.height + 100);
-      canvas.saveLayer(
-          bounds, Paint()..color = Color.fromRGBO(255, 255, 255, cloud.opacity));
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, y + cloud.height - cloud.baseHeight, cloud.width,
-              cloud.baseHeight),
-          Radius.circular(cloud.baseHeight / 2),
-        ),
-        white,
-      );
-      for (final puff in cloud.puffs) {
-        canvas.drawCircle(
-          Offset(x + puff.left + puff.diameter / 2,
-              y + puff.top + puff.diameter / 2),
-          puff.diameter / 2,
-          white,
-        );
-      }
-      canvas.restore();
+      canvas
+        ..save()
+        ..translate(x, y)
+        ..drawPath(_shapes[i], _paints[i])
+        ..restore();
     }
   }
 

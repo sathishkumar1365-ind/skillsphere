@@ -1,109 +1,103 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 
+import '../../../../core/auth/app_user.dart';
 import '../home_theme.dart';
 import 'home_common.dart';
 
-/// Sections of the Home page the navigation bar can jump to.
-enum HomeSection { home, skills, projects, gaps }
-
-extension HomeSectionLabel on HomeSection {
-  String get label => const ['Home', 'My Skills', 'Projects', 'Skill Gaps'][index];
-}
-
-/// Floating frosted-glass navigation pill pinned to the top of the page.
+/// Floating navigation pill pinned to the top of the page.
 /// The highlighted link follows the section currently in view.
+///
+/// Used by the Home page and the Super Admin dashboard: pass the section
+/// names in [links] and the highlighted one in [activeIndex].
+///
+/// Note: an earlier version blurred the page behind the bar
+/// (BackdropFilter). On Flutter web that blur is recalculated on every
+/// scroll frame and was a main cause of scroll lag, so the bar is now
+/// near-opaque white instead.
 class HomeNavBar extends StatelessWidget {
   const HomeNavBar({
     super.key,
-    required this.active,
+    required this.links,
+    required this.activeIndex,
     required this.onSelect,
-    required this.initials,
+    required this.user,
     required this.onSearch,
     required this.onNotifications,
     required this.onProfile,
+    required this.onLogout,
     this.unreadNotifications = 0,
   });
 
-  final HomeSection active;
-  final ValueChanged<HomeSection> onSelect;
-  final String initials;
+  final List<String> links;
+  final int activeIndex;
+  final ValueChanged<int> onSelect;
+  final AppUser user;
   final VoidCallback onSearch;
   final VoidCallback onNotifications;
   final VoidCallback onProfile;
+  final VoidCallback onLogout;
   final int unreadNotifications;
 
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    final showLinks = width >= 900;
+    final width = MediaQuery.sizeOf(context).width;
+    // Five links need a little more room than four.
+    final showLinks = width >= (links.length > 4 ? 1040 : 900);
     final showName = width >= 420;
     final unread = unreadNotifications;
 
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        borderRadius: BorderRadius.all(Radius.circular(999)),
-        boxShadow: [
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: const Color.fromRGBO(255, 255, 255, 0.94),
+        borderRadius: const BorderRadius.all(Radius.circular(999)),
+        border: Border.all(color: const Color.fromRGBO(255, 255, 255, 0.95)),
+        boxShadow: const [
           BoxShadow(
-            color: Color.fromRGBO(15, 27, 45, 0.30),
-            blurRadius: 30,
-            spreadRadius: -18,
+            color: Color.fromRGBO(15, 27, 45, 0.22),
+            blurRadius: 24,
+            spreadRadius: -14,
             offset: Offset(0, 10),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.all(Radius.circular(999)),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
-            decoration: BoxDecoration(
-              color: const Color.fromRGBO(255, 255, 255, 0.72),
-              borderRadius: const BorderRadius.all(Radius.circular(999)),
-              border: Border.all(color: const Color.fromRGBO(255, 255, 255, 0.9)),
-            ),
-            child: Material(
-              type: MaterialType.transparency,
-              child: Row(
-                children: [
-                  _Brand(showName: showName, onTap: () => onSelect(HomeSection.home)),
-                  const Spacer(),
-                  if (showLinks) ...[
-                    for (final section in HomeSection.values)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 2),
-                        child: _NavLink(
-                          label: section.label,
-                          selected: section == active,
-                          onTap: () => onSelect(section),
-                        ),
-                      ),
-                    const Spacer(),
-                  ],
-                  _RoundIconButton(
-                    icon: Icons.search_rounded,
-                    tooltip: 'Search',
-                    onTap: onSearch,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Row(
+          children: [
+            _Brand(showName: showName, onTap: () => onSelect(0)),
+            const Spacer(),
+            if (showLinks) ...[
+              for (var i = 0; i < links.length; i++)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _NavLink(
+                    label: links[i],
+                    selected: i == activeIndex,
+                    onTap: () => onSelect(i),
                   ),
-                  const SizedBox(width: 8),
-                  _RoundIconButton(
-                    icon: Icons.notifications_none_rounded,
-                    tooltip: unread > 0 ? 'Notifications, $unread new' : 'Notifications',
-                    onTap: onNotifications,
-                    showDot: unread > 0,
-                  ),
-                  const SizedBox(width: 8),
-                  if (!showLinks) ...[
-                    _SectionMenu(active: active, onSelect: onSelect),
-                    const SizedBox(width: 8),
-                  ],
-                  _Avatar(initials: initials, onTap: onProfile),
-                ],
-              ),
+                ),
+              const Spacer(),
+            ],
+            _RoundIconButton(
+              icon: Icons.search_rounded,
+              tooltip: 'Search',
+              onTap: onSearch,
             ),
-          ),
+            const SizedBox(width: 8),
+            _RoundIconButton(
+              icon: Icons.notifications_none_rounded,
+              tooltip: unread > 0 ? 'Notifications, $unread new' : 'Notifications',
+              onTap: onNotifications,
+              showDot: unread > 0,
+            ),
+            const SizedBox(width: 8),
+            if (!showLinks) ...[
+              _SectionMenu(links: links, activeIndex: activeIndex, onSelect: onSelect),
+              const SizedBox(width: 8),
+            ],
+            _ProfileMenu(user: user, onProfile: onProfile, onLogout: onLogout),
+          ],
         ),
       ),
     );
@@ -237,61 +231,123 @@ class _RoundIconButton extends StatelessWidget {
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.initials, required this.onTap});
+enum _ProfileAction { profile, logout }
 
-  final String initials;
-  final VoidCallback onTap;
+/// Avatar button. Opens a menu with the user's name, role and Log out.
+class _ProfileMenu extends StatelessWidget {
+  const _ProfileMenu({required this.user, required this.onProfile, required this.onLogout});
+
+  final AppUser user;
+  final VoidCallback onProfile;
+  final VoidCallback onLogout;
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'My profile',
-      child: Material(
-        color: HomeColors.blue,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            width: 44,
-            height: 44,
-            child: Center(
-              child: Text(
-                initials,
-                style: HomeText.body(14, weight: FontWeight.w700, color: Colors.white),
-              ),
+    final isEmployee = user.role == UserRole.endUser;
+    return PopupMenuButton<_ProfileAction>(
+      tooltip: 'Account',
+      offset: const Offset(0, 54),
+      color: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(18))),
+      onSelected: (action) => action == _ProfileAction.logout ? onLogout() : onProfile(),
+      itemBuilder: (context) => [
+        PopupMenuItem<_ProfileAction>(
+          enabled: false,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 220),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(user.name,
+                    style: HomeText.body(16, weight: FontWeight.w800, color: HomeColors.ink)),
+                const SizedBox(height: 2),
+                Text(user.email, style: HomeText.body(13, color: HomeColors.muted)),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: isEmployee ? HomeColors.neutralTint : HomeColors.blueTint,
+                    borderRadius: const BorderRadius.all(Radius.circular(999)),
+                  ),
+                  child: Text(
+                    user.role.description,
+                    style: HomeText.body(12,
+                        weight: FontWeight.w700,
+                        color: isEmployee ? HomeColors.body : HomeColors.blueDeep),
+                  ),
+                ),
+              ],
             ),
           ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<_ProfileAction>(
+          value: _ProfileAction.profile,
+          child: _MenuRow(icon: Icons.person_outline_rounded, label: 'My profile'),
+        ),
+        const PopupMenuItem<_ProfileAction>(
+          value: _ProfileAction.logout,
+          child: _MenuRow(icon: Icons.logout_rounded, label: 'Log out'),
+        ),
+      ],
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: const BoxDecoration(color: HomeColors.blue, shape: BoxShape.circle),
+        alignment: Alignment.center,
+        child: Text(
+          user.initials,
+          style: HomeText.body(14, weight: FontWeight.w700, color: Colors.white),
         ),
       ),
     );
   }
 }
 
-/// On narrow screens the section links move into this menu.
-class _SectionMenu extends StatelessWidget {
-  const _SectionMenu({required this.active, required this.onSelect});
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({required this.icon, required this.label});
 
-  final HomeSection active;
-  final ValueChanged<HomeSection> onSelect;
+  final IconData icon;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<HomeSection>(
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: HomeColors.ink),
+        const SizedBox(width: 12),
+        Text(label, style: HomeText.body(15, weight: FontWeight.w600, color: HomeColors.ink)),
+      ],
+    );
+  }
+}
+
+/// On narrow screens the section links move into this menu.
+class _SectionMenu extends StatelessWidget {
+  const _SectionMenu({required this.links, required this.activeIndex, required this.onSelect});
+
+  final List<String> links;
+  final int activeIndex;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
       tooltip: 'Sections',
       onSelected: onSelect,
       offset: const Offset(0, 54),
       color: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
       itemBuilder: (context) => [
-        for (final section in HomeSection.values)
-          PopupMenuItem<HomeSection>(
-            value: section,
+        for (var i = 0; i < links.length; i++)
+          PopupMenuItem<int>(
+            value: i,
             child: Text(
-              section.label,
+              links[i],
               style: HomeText.body(15,
-                  weight: section == active ? FontWeight.w800 : FontWeight.w500,
+                  weight: i == activeIndex ? FontWeight.w800 : FontWeight.w500,
                   color: HomeColors.ink),
             ),
           ),

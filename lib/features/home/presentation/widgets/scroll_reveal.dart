@@ -120,12 +120,16 @@ class _ScrollRevealState extends State<ScrollReveal>
           child: widget.child,
           builder: (context, child) {
             final remaining = 1 - _progress.value;
-            final matrix = Matrix4.identity()
-              ..setEntry(3, 2, 0.0011)
-              ..multiply(
-                  Matrix4.translationValues(0, widget.offset * remaining, 0))
-              ..multiply(Matrix4.rotationX(
-                  -widget.tiltDegrees * math.pi / 180 * remaining));
+            // Once revealed, use a plain identity matrix: Flutter then skips
+            // the transform layer entirely, keeping scrolling cheap.
+            final matrix = remaining == 0
+                ? Matrix4.identity()
+                : (Matrix4.identity()
+                  ..setEntry(3, 2, 0.0011)
+                  ..multiply(
+                      Matrix4.translationValues(0, widget.offset * remaining, 0))
+                  ..multiply(Matrix4.rotationX(
+                      -widget.tiltDegrees * math.pi / 180 * remaining)));
             return Transform(
               alignment: Alignment.center,
               transform: matrix,

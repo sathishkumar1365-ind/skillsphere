@@ -139,6 +139,23 @@ class HomeData {
   final DateTime? nextReview;
   final int unreadNotifications;
 
+  /// A copy with some fields replaced (used to greet the signed-in user
+  /// while the rest of the Home page still shows sample data).
+  HomeData copyWith({String? firstName, String? initials}) => HomeData(
+        firstName: firstName ?? this.firstName,
+        initials: initials ?? this.initials,
+        skillsAcquired: skillsAcquired,
+        skillsInProgress: skillsInProgress,
+        requiredSkillsHeld: requiredSkillsHeld,
+        requiredSkillsTotal: requiredSkillsTotal,
+        skills: skills,
+        projects: projects,
+        gaps: gaps,
+        learningPlan: learningPlan,
+        nextReview: nextReview,
+        unreadNotifications: unreadNotifications,
+      );
+
   int get readinessPercent => requiredSkillsTotal == 0
       ? 100
       : (requiredSkillsHeld * 100 / requiredSkillsTotal).round();

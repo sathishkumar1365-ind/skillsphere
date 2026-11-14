@@ -53,11 +53,15 @@ class _LiftCardState extends State<LiftCard> {
           curve: HomeMotion.ease,
           child: Padding(padding: widget.padding, child: widget.child),
           builder: (context, t, child) {
-            final matrix = Matrix4.identity()
-              ..setEntry(3, 2, 0.0011)
-              ..multiply(Matrix4.translationValues(0, -widget.liftBy * t, 0))
-              ..multiply(
-                  Matrix4.rotationX(-widget.tiltDegrees * math.pi / 180 * t));
+            // At rest: no 3D matrix and no shadow, so a resting card costs
+            // nothing extra while the page scrolls.
+            final matrix = t == 0
+                ? Matrix4.identity()
+                : (Matrix4.identity()
+                  ..setEntry(3, 2, 0.0011)
+                  ..multiply(Matrix4.translationValues(0, -widget.liftBy * t, 0))
+                  ..multiply(Matrix4.rotationX(
+                      -widget.tiltDegrees * math.pi / 180 * t)));
             return Transform(
               alignment: Alignment.center,
               transform: matrix,
@@ -66,14 +70,16 @@ class _LiftCardState extends State<LiftCard> {
                   color: widget.color,
                   borderRadius: BorderRadius.circular(widget.radius),
                   border: border == null ? null : Border.all(color: border),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color.fromRGBO(15, 27, 45, 0.38 * t),
-                      blurRadius: 44,
-                      spreadRadius: -20,
-                      offset: Offset(0, 28 * t),
-                    ),
-                  ],
+                  boxShadow: t == 0
+                      ? null
+                      : [
+                          BoxShadow(
+                            color: Color.fromRGBO(15, 27, 45, 0.38 * t),
+                            blurRadius: 44,
+                            spreadRadius: -20,
+                            offset: Offset(0, 28 * t),
+                          ),
+                        ],
                 ),
                 child: child,
               ),
