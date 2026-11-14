@@ -38,9 +38,9 @@ class AddCompetencyForm extends StatefulWidget {
 }
 
 class _AddCompetencyFormState extends State<AddCompetencyForm> {
-  static const _nameMax = 60;
-  static const _descriptionMax = 300;
-  static const _levelMax = 200;
+  static const _nameMax = CompetencyRules.nameMax;
+  static const _descriptionMax = CompetencyRules.descriptionMax;
+  static const _levelMax = CompetencyRules.levelMax;
 
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
@@ -92,12 +92,7 @@ class _AddCompetencyFormState extends State<AddCompetencyForm> {
     });
   }
 
-  static bool _isValidLink(String value) {
-    final uri = Uri.tryParse(value);
-    return uri != null &&
-        (uri.scheme == 'https' || uri.scheme == 'http') &&
-        uri.host.isNotEmpty;
-  }
+  static bool _isValidLink(String value) => CompetencyRules.isValidLink(value);
 
   void _useStandardWording() {
     var filled = 0;
@@ -273,7 +268,10 @@ class _AddCompetencyFormState extends State<AddCompetencyForm> {
                   validator: (value) {
                     final text = (value ?? '').trim();
                     if (text.isEmpty) return 'Add a short description.';
-                    if (text.length < 15) return 'Add a little more detail (15 characters or more).';
+                    if (text.length < CompetencyRules.descriptionMin) {
+                      return 'Add a little more detail '
+                          '(${CompetencyRules.descriptionMin} characters or more).';
+                    }
                     return null;
                   },
                 ),

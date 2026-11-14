@@ -36,6 +36,52 @@ enum CompetencyCategory {
         (c) => c.apiValue == value.toUpperCase(),
         orElse: () => CompetencyCategory.skill,
       );
+
+  /// Reads a category typed in a file: "Skill", "skills", "TOOL", " Domain ".
+  /// Returns null when it isn't one of the four.
+  static CompetencyCategory? tryParse(String value) {
+    final text = value.trim().toLowerCase();
+    if (text.isEmpty) return null;
+    for (final c in CompetencyCategory.values) {
+      if (text == c.label.toLowerCase() || text == c.plural.toLowerCase()) return c;
+    }
+    return null;
+  }
+}
+
+/// Limits shared by the Add form, the Excel/CSV import and (later) the API.
+class CompetencyRules {
+  CompetencyRules._();
+
+  static const int nameMax = 60;
+  static const int descriptionMin = 15;
+  static const int descriptionMax = 300;
+  static const int levelMax = 200;
+
+  /// A full http(s) link, e.g. "https://example.com/logo.png".
+  static bool isValidLink(String value) {
+    final uri = Uri.tryParse(value.trim());
+    return uri != null &&
+        (uri.scheme == 'https' || uri.scheme == 'http') &&
+        uri.host.isNotEmpty;
+  }
+}
+
+/// A competency that hasn't been saved yet (from the form or a file row).
+class CompetencyDraft {
+  const CompetencyDraft({
+    required this.category,
+    required this.name,
+    required this.description,
+    required this.levelDescriptions,
+    this.logoUrl,
+  });
+
+  final CompetencyCategory category;
+  final String name;
+  final String description;
+  final List<String> levelDescriptions;
+  final String? logoUrl;
 }
 
 /// The organisation-wide proficiency scale. Every competency uses the same

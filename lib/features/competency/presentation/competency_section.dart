@@ -5,7 +5,8 @@ import '../../home/presentation/widgets/home_common.dart';
 import '../../organization/data/org_models.dart';
 import '../data/competency_models.dart';
 import '../data/competency_repository.dart';
-import 'widgets/add_competency_form.dart';
+import '../../additional_competency/presentation/additional_directory_panel.dart';
+import 'widgets/competency_add_panel.dart';
 import 'widgets/competency_details_panel.dart';
 import 'widgets/competency_library.dart';
 
@@ -15,6 +16,9 @@ import 'widgets/competency_library.dart';
 /// competencies stay in view while a new one is being typed. Selecting any
 /// competency opens its details (logo, description, Level 0–5 guide and the
 /// employees who hold it) in a panel over the page; the form keeps its text.
+///
+/// HRD can also switch the left panel to a bulk import from Excel/CSV, and
+/// below both sees the employees' self-declared Additional Competencies.
 ///
 /// Anyone else gets the library only (read-only), so the same widget can be
 /// reused later for Team Leads and employees.
@@ -44,7 +48,7 @@ class _CompetencySectionState extends State<CompetencySection> {
 
   // Keep the typed form text and the library filters when a window resize
   // switches between side-by-side and stacked layouts.
-  final GlobalKey _formKey = GlobalKey(debugLabel: 'add-competency-form');
+  final GlobalKey _formKey = GlobalKey(debugLabel: 'add-competency-panel');
   final GlobalKey _libraryKey = GlobalKey(debugLabel: 'competency-library');
 
   CompetencyRepository get _repository => CompetencyRepository.instance;
@@ -67,6 +71,20 @@ class _CompetencySectionState extends State<CompetencySection> {
       employeesById: _employeesById,
       onOpenEmployee: widget.onOpenEmployee,
     );
+  }
+
+  void _handleImported(List<Competency> added) {
+    if (added.isEmpty) return;
+    setState(() => _justAddedId = added.first.id);
+    final count = added.length;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('$count ${count == 1 ? 'competency' : 'competencies'} imported. '
+            'They are marked NEW in the library.'),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(label: 'View first', onPressed: () => _open(added.first)),
+      ));
   }
 
   void _handleAdded(Competency competency) {
@@ -105,10 +123,11 @@ class _CompetencySectionState extends State<CompetencySection> {
             if (!canManage) {
               body = library;
             } else {
-              final form = AddCompetencyForm(
+              final form = CompetencyAddPanel(
                 key: _formKey,
                 user: widget.user,
                 onAdded: _handleAdded,
+                onImported: _handleImported,
                 onOpenExisting: _open,
               );
               body = sideBySide
@@ -133,13 +152,21 @@ class _CompetencySectionState extends State<CompetencySection> {
                   title: 'COMPETENCIES',
                   subtitle: canManage
                       ? 'Add the skills, tools, languages and domains employees are '
-                          'rated on, each with a Level 0–5 guide. Select any '
-                          'competency to see its levels and who holds it.'
+                          'rated on, each with a Level 0–5 guide, one at a time or '
+                          'from an Excel/CSV file. Select any competency to see its '
+                          'levels and who holds it.'
                       : 'The skills, tools, languages and domains employees are rated '
                           'on. Select one to see its Level 0–5 guide.',
                 ),
                 const SizedBox(height: 32),
                 body,
+                if (canManage) ...[
+                  const SizedBox(height: 24),
+                  AdditionalDirectoryPanel(
+                    employeesById: _employeesById,
+                    onOpenEmployee: widget.onOpenEmployee,
+                  ),
+                ],
               ],
             );
           },

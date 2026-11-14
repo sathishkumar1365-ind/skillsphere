@@ -79,50 +79,124 @@ class CompetencyRepository {
     required List<String> levelDescriptions,
     String? logoUrl,
   }) async {
-    if (!by.role.canManageCompetencies) {
-      throw const CompetencyException('Only the HRD team can add competencies.');
-    }
-    final cleanName = name.trim().replaceAll(RegExp(r'\s+'), ' ');
-    final levels = levelDescriptions.map((d) => d.trim()).toList();
-    if (cleanName.isEmpty || description.trim().isEmpty) {
-      throw const CompetencyException('Name and description are required.');
-    }
-    if (levels.length != CompetencyLevel.count || levels.any((d) => d.isEmpty)) {
-      throw const CompetencyException('Describe every level from 0 to 5.');
-    }
+    _checkCanManage(by);
+    final draft = _clean(CompetencyDraft(
+      category: category,
+      name: name,
+      description: description,
+      levelDescriptions: levelDescriptions,
+      logoUrl: logoUrl,
+    ));
+    final problem = _problemWith(draft);
+    if (problem != null) throw CompetencyException(problem);
 
     // Short pause so the button's "Adding…" state is visible, like an API call.
     await Future<void>.delayed(const Duration(milliseconds: 450));
 
-    final existing = findByName(cleanName);
+    final existing = findByName(draft.name);
     if (existing != null) {
       throw CompetencyException(
           '"${existing.name}" is already in the library (${existing.category.label}).');
     }
-
-    final logo = logoUrl?.trim();
-    final competency = Competency(
-      id: _nextId(),
-      name: cleanName,
-      category: category,
-      description: description.trim(),
-      levelDescriptions: List<String>.unmodifiable(levels),
-      logoUrl: (logo == null || logo.isEmpty) ? null : logo,
-      createdAt: DateTime.now(),
-      createdBy: by.name,
-    );
+    final competency = _create(draft, id: _idFor(_highestNumber() + 1), by: by);
     _addedThisSession.add(competency.id);
-    competencies.value =
-        List<Competency>.unmodifiable([...competencies.value, competency]);
+    competencies.value = List<Competency>.unmodifiable([...competencies.value, competency]);
     return competency;
   }
 
-  String _nextId() {
+  /// Adds many competencies at once, e.g. from an Excel or CSV file
+  /// (HRD team only). Drafts whose name is already in the library, or
+  /// repeats an earlier draft, are skipped. Returns the ones added.
+  ///
+  /// Later: POST /api/competencies/bulk with the same rules; the API should
+  /// add the valid rows in one transaction and report the skipped ones.
+  Future<List<Competency>> addAll({
+    required AppUser by,
+    required List<CompetencyDraft> drafts,
+  }) async {
+    _checkCanManage(by);
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+
+    final taken = {for (final c in competencies.value) c.key};
+    var number = _highestNumber();
+    final added = <Competency>[];
+    for (final raw in drafts) {
+      final draft = _clean(raw);
+      final key = Competency.keyFor(draft.name);
+      if (_problemWith(draft) != null || taken.contains(key)) continue;
+      taken.add(key);
+      number++;
+      added.add(_create(draft, id: _idFor(number), by: by));
+    }
+    if (added.isEmpty) return const [];
+    _addedThisSession.addAll(added.map((c) => c.id));
+    competencies.value = List<Competency>.unmodifiable([...competencies.value, ...added]);
+    return added;
+  }
+
+  void _checkCanManage(AppUser by) {
+    if (!by.role.canManageCompetencies) {
+      throw const CompetencyException('Only the HRD team can add competencies.');
+    }
+  }
+
+  static CompetencyDraft _clean(CompetencyDraft d) {
+    final logo = d.logoUrl?.trim() ?? '';
+    return CompetencyDraft(
+      category: d.category,
+      name: d.name.trim().replaceAll(RegExp(r'\s+'), ' '),
+      description: d.description.trim(),
+      levelDescriptions: [for (final l in d.levelDescriptions) l.trim()],
+      logoUrl: logo.isEmpty ? null : logo,
+    );
+  }
+
+  /// The first rule a (cleaned) draft breaks, or null when it is fine.
+  static String? _problemWith(CompetencyDraft d) {
+    if (d.name.isEmpty) return 'The name is missing.';
+    if (d.name.length > CompetencyRules.nameMax) {
+      return 'The name is longer than ${CompetencyRules.nameMax} characters.';
+    }
+    if (d.description.length < CompetencyRules.descriptionMin) {
+      return 'The description needs at least ${CompetencyRules.descriptionMin} characters.';
+    }
+    if (d.description.length > CompetencyRules.descriptionMax) {
+      return 'The description is longer than ${CompetencyRules.descriptionMax} characters.';
+    }
+    final logo = d.logoUrl;
+    if (logo != null && !CompetencyRules.isValidLink(logo)) {
+      return 'The logo link must start with https://';
+    }
+    if (d.levelDescriptions.length != CompetencyLevel.count ||
+        d.levelDescriptions.any((l) => l.isEmpty)) {
+      return 'Describe every level from 0 to 5.';
+    }
+    if (d.levelDescriptions.any((l) => l.length > CompetencyRules.levelMax)) {
+      return 'A level description is longer than ${CompetencyRules.levelMax} characters.';
+    }
+    return null;
+  }
+
+  static Competency _create(CompetencyDraft d, {required String id, required AppUser by}) =>
+      Competency(
+        id: id,
+        name: d.name,
+        category: d.category,
+        description: d.description,
+        levelDescriptions: List<String>.unmodifiable(d.levelDescriptions),
+        logoUrl: d.logoUrl,
+        createdAt: DateTime.now(),
+        createdBy: by.name,
+      );
+
+  int _highestNumber() {
     var highest = 0;
     for (final c in competencies.value) {
       final number = int.tryParse(c.id.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
       if (number > highest) highest = number;
     }
-    return 'CMP-${(highest + 1).toString().padLeft(3, '0')}';
+    return highest;
   }
+
+  static String _idFor(int number) => 'CMP-${number.toString().padLeft(3, '0')}';
 }

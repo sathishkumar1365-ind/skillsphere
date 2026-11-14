@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/auth/app_user.dart';
 import '../../../core/sphere_page_route.dart';
+import '../../additional_competency/presentation/my_additional_section.dart';
 import '../../organization/data/org_models.dart';
 import '../../organization/presentation/widgets/team_section.dart';
 import '../data/home_models.dart';
@@ -72,7 +73,7 @@ class _HomePageState extends State<HomePage> {
 
   // Section order on this page.
   static const int _gapsIndex = 3;
-  static const int _teamIndex = 4;
+  static const int _teamIndex = 5;
 
   /// Team Leads get the extra "My Team" section; End Users never do.
   bool get _showTeam => widget.user.role == UserRole.admin;
@@ -125,6 +126,10 @@ class _HomePageState extends State<HomePage> {
           onOpenLearningPlan:
               widget.onOpenLearningPlan ?? () => _notConnected('Learning plan'),
         ),
+      ),
+      SphereSection(
+        label: 'Additional',
+        child: MyAdditionalSection(user: user),
       ),
       if (_showTeam)
         SphereSection(
