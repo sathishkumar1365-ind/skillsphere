@@ -27,6 +27,9 @@ enum UserRole {
   /// Employee information of a department: Super Admin and Team Leads.
   bool get canViewTeam => this == UserRole.superAdmin || this == UserRole.admin;
 
+  /// Adding competencies to the library: HRD team (Super Admin) only.
+  bool get canManageCompetencies => this == UserRole.superAdmin;
+
   /// Maps the role string the Spring Boot API will send (e.g. in the JWT).
   static UserRole fromApi(String value) => switch (value.toUpperCase()) {
         'SUPER_ADMIN' => UserRole.superAdmin,

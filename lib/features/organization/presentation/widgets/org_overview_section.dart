@@ -17,12 +17,16 @@ class OrgOverviewSection extends StatelessWidget {
     required this.firstName,
     required this.onViewEmployees,
     required this.onViewShortages,
+    this.onAddCompetency,
   });
 
   final OrgData data;
   final String firstName;
   final VoidCallback onViewEmployees;
   final VoidCallback onViewShortages;
+
+  /// Shows an "Add competency" button when set (HRD only).
+  final VoidCallback? onAddCompetency;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +45,7 @@ class OrgOverviewSection extends StatelessWidget {
             titleSize: titleSize,
             onViewEmployees: onViewEmployees,
             onViewShortages: onViewShortages,
+            onAddCompetency: onAddCompetency,
           ),
         );
         final globe = Center(
@@ -87,6 +92,7 @@ class _Intro extends StatelessWidget {
     required this.titleSize,
     required this.onViewEmployees,
     required this.onViewShortages,
+    required this.onAddCompetency,
   });
 
   final OrgData data;
@@ -94,6 +100,7 @@ class _Intro extends StatelessWidget {
   final double titleSize;
   final VoidCallback onViewEmployees;
   final VoidCallback onViewShortages;
+  final VoidCallback? onAddCompetency;
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +146,12 @@ class _Intro extends StatelessWidget {
               onPressed: onViewShortages,
               variant: PillVariant.outline,
             ),
+            if (onAddCompetency != null)
+              PillButton(
+                label: 'Add competency',
+                onPressed: onAddCompetency,
+                variant: PillVariant.outline,
+              ),
           ],
         ),
         const SizedBox(height: 22),

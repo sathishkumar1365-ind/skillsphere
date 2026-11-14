@@ -41,8 +41,8 @@ class HomeNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    // Five links need a little more room than four.
-    final showLinks = width >= (links.length > 4 ? 1040 : 900);
+    // More links need more room; below the threshold they move into a menu.
+    final showLinks = width >= (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900));
     final showName = width >= 420;
     final unread = unreadNotifications;
 

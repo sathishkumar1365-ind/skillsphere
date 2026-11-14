@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/auth/app_user.dart';
 import '../../../core/sphere_page_route.dart';
+import '../../competency/presentation/competency_section.dart';
 import '../../home/presentation/home_theme.dart';
 import '../../home/presentation/widgets/home_common.dart';
 import '../../home/presentation/widgets/home_nav_bar.dart';
@@ -16,8 +17,9 @@ import 'widgets/skill_coverage_section.dart';
 /// Overall Dashboard – the Super Admin (HRD) landing page.
 ///
 /// One scrolling page (same Sky Sphere look as the Home page) with
-/// organisation-wide data: overview, departments, skill coverage, projects
-/// and the full employee directory. The nav bar jumps between sections.
+/// organisation-wide data: overview, departments, skill coverage, the
+/// competency library (with the HRD-only Add form), projects and the full
+/// employee directory. The nav bar jumps between sections.
 class OrgDashboardPage extends StatefulWidget {
   const OrgDashboardPage({
     super.key,
@@ -61,7 +63,8 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
 
   // Section order on this page.
   static const int _skillsIndex = 2;
-  static const int _employeesIndex = 4;
+  static const int _competenciesIndex = 3;
+  static const int _employeesIndex = 5;
 
   void _notConnected(String what) {
     ScaffoldMessenger.of(context)
@@ -91,6 +94,9 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
           firstName: user.firstName,
           onViewEmployees: () => _scrollTo(_employeesIndex),
           onViewShortages: () => _scrollTo(_skillsIndex),
+          onAddCompetency: user.role.canManageCompetencies
+              ? () => _scrollTo(_competenciesIndex)
+              : null,
         ),
       ),
       SphereSection(
@@ -103,6 +109,14 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
           data: data,
           onOpenReviewQueue:
               widget.onOpenReviewQueue ?? () => _notConnected('Review queue'),
+        ),
+      ),
+      SphereSection(
+        label: 'Competencies',
+        child: CompetencySection(
+          user: user,
+          employees: data.employees,
+          onOpenEmployee: widget.onOpenEmployee,
         ),
       ),
       SphereSection(
