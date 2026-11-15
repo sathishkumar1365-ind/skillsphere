@@ -630,7 +630,8 @@ class _AllEmployeesPageState extends State<AllEmployeesPage> {
   Widget build(BuildContext context) {
     final user = widget.user;
     final allowed = user.role.canViewTeam;
-    final side = MediaQuery.sizeOf(context).width < 600 ? 14.0 : 28.0;
+    // Same frame as the dashboards (top bar and list share their edges).
+    final side = ConsoleFrame.inset(MediaQuery.sizeOf(context).width);
     return Scaffold(
       backgroundColor: const Color(0xFFF7FBFE),
       body: Stack(
@@ -642,7 +643,7 @@ class _AllEmployeesPageState extends State<AllEmployeesPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: EdgeInsets.fromLTRB(side, 14, side, 10),
+                  padding: EdgeInsets.fromLTRB(side, ConsoleFrame.topGap, side, 10),
                   child: ConsoleTopBar(
                     title: user.role.canManageOrganization ? 'All employees' : '${user.department} team',
                     user: user,
@@ -661,7 +662,7 @@ class _AllEmployeesPageState extends State<AllEmployeesPage> {
                         child: Align(
                           alignment: Alignment.topCenter,
                           child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 1200),
+                            constraints: const BoxConstraints(maxWidth: ConsoleFrame.contentWidth),
                             child: allowed
                                 ? TurnIn(
                                     child: AllEmployeesView(

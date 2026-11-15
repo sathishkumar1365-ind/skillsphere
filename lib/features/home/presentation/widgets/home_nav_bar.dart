@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/auth/app_user.dart';
 import '../home_theme.dart';
+import 'account_menu.dart';
 import 'home_common.dart';
 
 /// Floating navigation pill pinned to the top of the page.
@@ -54,7 +55,11 @@ class HomeNavBar extends StatelessWidget {
     final extra = onOpenConsole == null ? 0 : 52;
     final showLinks =
         width >= (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900)) + extra;
-    final showName = width >= 420;
+    final hasConsole = onOpenConsole != null;
+    // The settings icon needs 52px more: hide the brand name sooner, and
+    // on very narrow screens drop the (not yet connected) search button.
+    final showName = width >= (hasConsole ? 500 : 420);
+    final showSearch = !hasConsole || width >= 380;
     final unread = unreadNotifications;
 
     return Container(
@@ -102,12 +107,14 @@ class HomeNavBar extends StatelessWidget {
               ),
               const SizedBox(width: 8),
             ],
-            _RoundIconButton(
-              icon: Icons.search_rounded,
-              tooltip: 'Search',
-              onTap: onSearch,
-            ),
-            const SizedBox(width: 8),
+            if (showSearch) ...[
+              _RoundIconButton(
+                icon: Icons.search_rounded,
+                tooltip: 'Search',
+                onTap: onSearch,
+              ),
+              const SizedBox(width: 8),
+            ],
             _RoundIconButton(
               icon: Icons.notifications_none_rounded,
               tooltip: unread > 0 ? 'Notifications, $unread new' : 'Notifications',
@@ -119,7 +126,7 @@ class HomeNavBar extends StatelessWidget {
               _SectionMenu(links: links, activeIndex: activeIndex, onSelect: onSelect),
               const SizedBox(width: 8),
             ],
-            _ProfileMenu(user: user, onProfile: onProfile, onLogout: onLogout),
+            AccountMenuButton(user: user, onProfile: onProfile, onLogout: onLogout),
           ],
         ),
       ),
@@ -272,99 +279,6 @@ class _RoundIconButtonState extends State<_RoundIconButton> {
           ),
         ),
       ),
-    );
-  }
-}
-
-enum _ProfileAction { profile, logout }
-
-/// Avatar button. Opens a menu with the user's name, role and Log out.
-class _ProfileMenu extends StatelessWidget {
-  const _ProfileMenu({required this.user, required this.onProfile, required this.onLogout});
-
-  final AppUser user;
-  final VoidCallback onProfile;
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    final isEmployee = user.role == UserRole.endUser;
-    return PopupMenuButton<_ProfileAction>(
-      tooltip: 'Account',
-      offset: const Offset(0, 54),
-      color: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(18))),
-      onSelected: (action) => action == _ProfileAction.logout ? onLogout() : onProfile(),
-      itemBuilder: (context) => [
-        PopupMenuItem<_ProfileAction>(
-          enabled: false,
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minWidth: 220),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(user.name,
-                    style: HomeText.body(16, weight: FontWeight.w800, color: HomeColors.ink)),
-                const SizedBox(height: 2),
-                Text(user.email, style: HomeText.body(13, color: HomeColors.muted)),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: isEmployee ? HomeColors.neutralTint : HomeColors.blueTint,
-                    borderRadius: const BorderRadius.all(Radius.circular(999)),
-                  ),
-                  child: Text(
-                    user.role.description,
-                    style: HomeText.body(12,
-                        weight: FontWeight.w700,
-                        color: isEmployee ? HomeColors.body : HomeColors.blueDeep),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const PopupMenuDivider(),
-        const PopupMenuItem<_ProfileAction>(
-          value: _ProfileAction.profile,
-          child: _MenuRow(icon: Icons.person_outline_rounded, label: 'My profile'),
-        ),
-        const PopupMenuItem<_ProfileAction>(
-          value: _ProfileAction.logout,
-          child: _MenuRow(icon: Icons.logout_rounded, label: 'Log out'),
-        ),
-      ],
-      child: Container(
-        width: 44,
-        height: 44,
-        decoration: const BoxDecoration(color: HomeColors.blue, shape: BoxShape.circle),
-        alignment: Alignment.center,
-        child: Text(
-          user.initials,
-          style: HomeText.body(14, weight: FontWeight.w700, color: Colors.white),
-        ),
-      ),
-    );
-  }
-}
-
-class _MenuRow extends StatelessWidget {
-  const _MenuRow({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: HomeColors.ink),
-        const SizedBox(width: 12),
-        Text(label, style: HomeText.body(15, weight: FontWeight.w600, color: HomeColors.ink)),
-      ],
     );
   }
 }

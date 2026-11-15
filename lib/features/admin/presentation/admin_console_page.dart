@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/auth/app_user.dart';
 import '../../../core/sphere_page_route.dart';
 import '../../home/presentation/home_theme.dart';
+import '../../home/presentation/widgets/account_menu.dart';
 import '../../home/presentation/widgets/drifting_clouds.dart';
 import '../../home/presentation/widgets/home_common.dart';
 import '../../home/presentation/widgets/smooth_wheel_scroll.dart';
@@ -85,6 +88,11 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
         ConsoleSection.structure => StructureView(user: widget.user, onOpenEmployee: _openEmployee),
       };
 
+  void _openOwnProfile() {
+    if (EmployeeRepository.instance.byId(widget.user.id) == null) return;
+    _openEmployee(widget.user.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
@@ -93,7 +101,10 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
     }
     final size = MediaQuery.sizeOf(context);
     final wide = size.width >= 1060;
-    final side = size.width < 600 ? 14.0 : 24.0;
+    // Same frame as the dashboards: the top bar, the side menu and the
+    // content share one left and one right edge.
+    final inset = ConsoleFrame.inset(size.width);
+    final hasOwnProfile = EmployeeRepository.instance.byId(user.id) != null;
 
     final content = Stack(
       children: [
@@ -108,7 +119,11 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
                   replayKey: s == _active ? _turn : -1,
                   fromSide: wide,
                   child: _ConsoleScroll(
-                    padding: EdgeInsets.fromLTRB(wide ? 8 : side, 8, side, 48),
+                    // Wide: no top gap, so each view's heading starts level
+                    // with the top of the side menu.
+                    padding: wide
+                        ? EdgeInsets.fromLTRB(_menuGap, 0, inset, 48)
+                        : EdgeInsets.fromLTRB(inset, 8, inset, 48),
                     child: _viewFor(s),
                   ),
                 ),
@@ -130,19 +145,20 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
-                  padding: EdgeInsets.fromLTRB(side, 14, side, wide ? 18 : 12),
+                  padding: EdgeInsets.fromLTRB(inset, ConsoleFrame.topGap, inset, wide ? 20 : 12),
                   child: ConsoleTopBar(
-                    title: 'HRD Console',
+                    title: wide ? 'HRD Console' : 'HRD Console · ${_active.shortTitle}',
                     user: user,
                     backLabel: 'Back to dashboard',
                     onBack: () => Navigator.of(context).maybePop(),
+                    onProfile: hasOwnProfile ? _openOwnProfile : null,
                     onLogout: widget.onLogout,
                   ),
                 ),
                 if (!wide)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: _MenuStrip(active: _active, onSelect: _select, horizontalPadding: side),
+                    child: _MenuStrip(active: _active, onSelect: _select, horizontalPadding: inset),
                   ),
                 Expanded(
                   child: wide
@@ -150,9 +166,9 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Padding(
-                              padding: EdgeInsets.fromLTRB(side, 0, 8, 24),
+                              padding: EdgeInsets.fromLTRB(inset, 0, 0, 24),
                               child: SizedBox(
-                                width: 284,
+                                width: _menuWidth,
                                 child: _SideMenu(user: user, active: _active, onSelect: _select),
                               ),
                             ),
@@ -169,6 +185,10 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
     );
   }
 }
+
+/// Width of the side menu and the gap between it and the content.
+const double _menuWidth = 272;
+const double _menuGap = 24;
 
 /// Each console view scrolls on its own (smooth wheel), so switching keeps
 /// every view's scroll position.
@@ -200,18 +220,22 @@ class _ConsoleScrollState extends State<_ConsoleScroll> {
         padding: widget.padding,
         child: SmoothWheelScroll(
           controller: _scroll,
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1120),
-              child: RepaintBoundary(child: widget.child),
-            ),
-          ),
+          // Fills the frame: the left edge sits next to the side menu and
+          // the right edge under the end of the top bar.
+          child: RepaintBoundary(child: widget.child),
         ),
       ),
     );
   }
 }
+
+// Side menu geometry. Every row – header, options and the signed-in user –
+// puts its 36px tile at the same x and its text at the same x, so the
+// icons form one column and the labels another.
+const double _menuInset = 14; // panel edge -> option row
+const double _rowPadding = 10; // option row edge -> tile
+const double _tile = 36;
+const double _tileGap = 12;
 
 class _SideMenu extends StatelessWidget {
   const _SideMenu({required this.user, required this.active, required this.onSelect});
@@ -222,7 +246,9 @@ class _SideMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const lead = _menuInset + _rowPadding;
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: const Color.fromRGBO(255, 255, 255, 0.9),
         borderRadius: const BorderRadius.all(Radius.circular(28)),
@@ -244,83 +270,112 @@ class _SideMenu extends StatelessWidget {
         builder: (context, _) {
           final pending = ApprovalRepository.instance.pendingCount;
           final incomplete = EmployeeRepository.instance.active.where((e) => !e.isComplete).length;
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(14, 22, 14, 18),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // ---- header
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 0, 10, 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.settings_outlined, size: 22, color: HomeColors.ink),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text('HRD CONSOLE', style: HomeText.display(26, height: 1)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 16),
-                child: Text('People, projects and organisation settings.',
-                    style: HomeText.body(13, color: HomeColors.muted, height: 1.45)),
-              ),
-              for (final s in ConsoleSection.values)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: _MenuItem(
-                    section: s,
-                    selected: s == active,
-                    badge: switch (s) {
-                      ConsoleSection.approvals => pending,
-                      ConsoleSection.employees => incomplete,
-                      _ => 0,
-                    },
-                    badgeHint: switch (s) {
-                      ConsoleSection.approvals => '$pending pending',
-                      ConsoleSection.employees => '$incomplete incomplete profiles',
-                      _ => '',
-                    },
-                    onTap: () => onSelect(s),
-                  ),
-                ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF4F8FC),
-                  borderRadius: BorderRadius.all(Radius.circular(18)),
-                ),
+                padding: const EdgeInsets.fromLTRB(lead, 22, 18, 0),
                 child: Row(
                   children: [
                     Container(
-                      width: 36,
-                      height: 36,
+                      width: _tile,
+                      height: _tile,
                       alignment: Alignment.center,
-                      decoration: const BoxDecoration(color: HomeColors.blue, shape: BoxShape.circle),
-                      child: Text(user.initials,
-                          style: HomeText.body(13, weight: FontWeight.w800, color: Colors.white)),
+                      decoration: const BoxDecoration(
+                        color: HomeColors.ink,
+                        borderRadius: BorderRadius.all(Radius.circular(11)),
+                      ),
+                      child: const Icon(Icons.settings_outlined, size: 19, color: Colors.white),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: _tileGap),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(user.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: HomeText.body(13.5, weight: FontWeight.w700, color: HomeColors.ink)),
-                          Text(user.role.description,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: HomeText.body(12, color: HomeColors.muted)),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text('HRD CONSOLE', maxLines: 1, style: HomeText.display(22, height: 1.0)),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Organisation settings',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: HomeText.body(12.5, color: HomeColors.muted),
+                          ),
                         ],
                       ),
                     ),
                   ],
+                ),
+              ),
+              Container(
+                height: 1,
+                margin: const EdgeInsets.fromLTRB(lead, 18, lead, 10),
+                color: HomeColors.cardBorder,
+              ),
+              // ---- options (scroll if the window is short)
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(_menuInset, 0, _menuInset, 8),
+                  children: [
+                    for (final s in ConsoleSection.values)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: _MenuItem(
+                          section: s,
+                          selected: s == active,
+                          badge: switch (s) {
+                            ConsoleSection.approvals => pending,
+                            ConsoleSection.employees => incomplete,
+                            _ => 0,
+                          },
+                          badgeHint: switch (s) {
+                            ConsoleSection.approvals => '$pending pending',
+                            ConsoleSection.employees => '$incomplete incomplete profiles',
+                            _ => '',
+                          },
+                          onTap: () => onSelect(s),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              // ---- signed-in user, pinned to the bottom of the panel
+              Padding(
+                padding: const EdgeInsets.fromLTRB(_menuInset, 6, _menuInset, _menuInset),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(_rowPadding, 10, 12, 10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF4F8FC),
+                    borderRadius: BorderRadius.all(Radius.circular(18)),
+                  ),
+                  child: Row(
+                    children: [
+                      UserAvatar(user: user, size: _tile),
+                      const SizedBox(width: _tileGap),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(user.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: HomeText.body(13.5, weight: FontWeight.w700, color: HomeColors.ink)),
+                            const SizedBox(height: 1),
+                            Text(user.role.description,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: HomeText.body(12, color: HomeColors.muted)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -358,8 +413,44 @@ class _MenuItemState extends State<_MenuItem> {
     final selected = widget.selected;
     final s = widget.section;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    final lift = selected ? 1.0 : (_hover ? 0.55 : 0.0);
     final fg = selected ? Colors.white : HomeColors.ink;
+
+    // The label never moves (an earlier version slid and tilted the whole
+    // row, which pushed the selected label out of line with the others).
+    // The 3D motion is on the icon tile only: one full turn when the option
+    // is chosen and a slight tilt on hover. Identity at rest.
+    final tile = TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: selected ? 1 : 0),
+      duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 700),
+      curve: HomeMotion.ease,
+      builder: (context, turn, child) => TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: _hover && !selected ? 1 : 0),
+        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 300),
+        curve: HomeMotion.ease,
+        child: child,
+        builder: (context, tilt, child) {
+          final atRest = (turn == 0 || turn == 1) && tilt == 0;
+          final matrix = atRest
+              ? Matrix4.identity()
+              : (Matrix4.identity()
+                ..setEntry(3, 2, 0.002)
+                ..multiply(Matrix4.rotationY(2 * math.pi * turn + 0.45 * tilt)));
+          return Transform(alignment: Alignment.center, transform: matrix, child: child);
+        },
+      ),
+      child: AnimatedContainer(
+        duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 300),
+        curve: HomeMotion.ease,
+        width: _tile,
+        height: _tile,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? const Color.fromRGBO(255, 255, 255, 0.14) : HomeColors.blueTint,
+          borderRadius: const BorderRadius.all(Radius.circular(11)),
+        ),
+        child: Icon(s.icon, size: 19, color: selected ? Colors.white : HomeColors.blueDeep),
+      ),
+    );
 
     return Semantics(
       button: true,
@@ -372,66 +463,40 @@ class _MenuItemState extends State<_MenuItem> {
         onExit: (_) => setState(() => _hover = false),
         child: GestureDetector(
           onTap: widget.onTap,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: lift),
-            duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 380),
+          child: AnimatedContainer(
+            duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 300),
             curve: HomeMotion.ease,
-            builder: (context, t, child) {
-              // A slight turn toward the content area, like a page tab
-              // being pulled out. Identity at rest.
-              final matrix = t == 0
-                  ? Matrix4.identity()
-                  : (Matrix4.identity()
-                    ..setEntry(3, 2, 0.0012)
-                    ..multiply(Matrix4.translationValues(6 * t, 0, 0))
-                    ..multiply(Matrix4.rotationY(-0.10 * t)));
-              return Transform(
-                alignment: Alignment.centerLeft,
-                transform: matrix,
-                child: AnimatedContainer(
-                  duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 300),
-                  curve: HomeMotion.ease,
-                  padding: const EdgeInsets.fromLTRB(10, 10, 12, 10),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? HomeColors.ink
-                        : (_hover ? const Color(0xFFF1F6FC) : const Color.fromRGBO(255, 255, 255, 0)),
-                    borderRadius: const BorderRadius.all(Radius.circular(18)),
-                    boxShadow: selected
-                        ? const [
-                            BoxShadow(
-                              color: Color.fromRGBO(15, 27, 45, 0.35),
-                              blurRadius: 18,
-                              spreadRadius: -8,
-                              offset: Offset(0, 10),
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: child,
-                ),
-              );
-            },
+            padding: const EdgeInsets.fromLTRB(_rowPadding, 8, 12, 8),
+            decoration: BoxDecoration(
+              color: selected
+                  ? HomeColors.ink
+                  : (_hover ? const Color(0xFFF1F6FC) : const Color.fromRGBO(255, 255, 255, 0)),
+              borderRadius: const BorderRadius.all(Radius.circular(18)),
+              boxShadow: selected
+                  ? const [
+                      BoxShadow(
+                        color: Color.fromRGBO(15, 27, 45, 0.35),
+                        blurRadius: 18,
+                        spreadRadius: -8,
+                        offset: Offset(0, 10),
+                      ),
+                    ]
+                  : const [],
+            ),
             child: Row(
               children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: selected ? const Color.fromRGBO(255, 255, 255, 0.14) : HomeColors.blueTint,
-                    borderRadius: const BorderRadius.all(Radius.circular(11)),
-                  ),
-                  child: Icon(s.icon, size: 19, color: selected ? Colors.white : HomeColors.blueDeep),
-                ),
-                const SizedBox(width: 12),
+                tile,
+                const SizedBox(width: _tileGap),
                 Expanded(
                   child: Text(s.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: HomeText.body(14, weight: FontWeight.w700, color: fg)),
                 ),
-                if (widget.badge > 0) CountBadge(count: widget.badge, inverted: selected),
+                if (widget.badge > 0) ...[
+                  const SizedBox(width: 8),
+                  CountBadge(count: widget.badge, inverted: selected),
+                ],
               ],
             ),
           ),
