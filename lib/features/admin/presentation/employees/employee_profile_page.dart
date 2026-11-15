@@ -15,6 +15,7 @@ import '../../../home/presentation/widgets/projects_section.dart' show MatchRing
 import '../../../home/presentation/widgets/sphere_scroll_page.dart';
 import '../../../organization/data/org_models.dart';
 import '../../../organization/presentation/widgets/org_common.dart';
+import '../../../skill_map/presentation/skill_beam_map.dart';
 import '../../../training_plan/presentation/training_plan_form.dart';
 import '../../../training_plan/presentation/training_plan_section.dart';
 import '../../data/admin_base.dart';
@@ -186,9 +187,9 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         final canAllocate = ProjectRepository.instance.canAllocate(user, profile);
         final canRelease = ProjectRepository.instance.canRelease(user, profile);
         final own = profile.id == user.id;
-        const competenciesIndex = 1;
-        const gapsIndex = 2;
-        const planIndex = 3;
+        const competenciesIndex = 2;
+        const gapsIndex = 3;
+        const planIndex = 4;
 
         final sections = <SphereSection>[
           SphereSection(
@@ -201,6 +202,18 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
               onAllocate: canAllocate ? () => _allocate(profile) : null,
               onSeeGaps: () =>
                   _page.currentState?.scrollToSection(insight.gapCount > 0 ? gapsIndex : competenciesIndex),
+            ),
+          ),
+          SphereSection(
+            label: 'Skill map',
+            child: _SkillMapSection(
+              insight: insight,
+              own: own,
+              onOpenCompetency: _openCompetency,
+              onPlan: own ? (gap) => _plan(profile, gap) : null,
+              onRequest: canRequest ? (row) => _request(profile, row) : null,
+              onOpenGaps: () => _page.currentState?.scrollToSection(gapsIndex),
+              onOpenPlans: () => _page.currentState?.scrollToSection(planIndex),
             ),
           ),
           SphereSection(
@@ -606,6 +619,56 @@ class _Stat extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ============================================================ skill map
+
+/// Projects → required → employee → current levels → gaps, joined by
+/// animated beams (see skill_beam_map.dart).
+class _SkillMapSection extends StatelessWidget {
+  const _SkillMapSection({
+    required this.insight,
+    required this.own,
+    required this.onOpenCompetency,
+    required this.onPlan,
+    required this.onRequest,
+    required this.onOpenGaps,
+    required this.onOpenPlans,
+  });
+
+  final EmployeeInsight insight;
+  final bool own;
+  final ValueChanged<Competency> onOpenCompetency;
+  final ValueChanged<GapEntry>? onPlan;
+  final ValueChanged<CompetencyRow>? onRequest;
+  final VoidCallback onOpenGaps;
+  final VoidCallback onOpenPlans;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = own ? 'your' : '${insight.profile.firstName}\'s';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          title: 'SKILL MAP',
+          subtitle: 'Everything on one picture: $name projects, the competencies they need, the levels held '
+              'and the gaps that come out of it, joined by beams of light. Hover over or tap anything to '
+              'follow its beams; pick a project to see only its needs.',
+        ),
+        const SizedBox(height: 26),
+        SkillBeamMap(
+          insight: insight,
+          own: own,
+          onOpenCompetency: onOpenCompetency,
+          onPlan: onPlan,
+          onRequest: onRequest,
+          onOpenGaps: onOpenGaps,
+          onOpenPlans: onOpenPlans,
+        ),
+      ],
     );
   }
 }

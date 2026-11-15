@@ -7,6 +7,8 @@
 //   between views, opened in full or exported one by one.
 // * Report library: every report type, opened in full or added to a
 //   dashboard.
+// * Skill maps: one person's projects → required → current levels → gaps,
+//   joined by animated beams (same scope as the reports).
 
 import 'package:flutter/material.dart';
 
@@ -23,6 +25,7 @@ import '../../home/presentation/widgets/home_common.dart';
 import '../../home/presentation/widgets/lift_card.dart';
 import '../../home/presentation/widgets/smooth_wheel_scroll.dart';
 import '../../organization/presentation/widgets/org_common.dart';
+import '../../skill_map/presentation/skill_map_explorer.dart';
 import '../data/dashboards.dart';
 import '../data/report_engine.dart';
 import '../data/report_export.dart';
@@ -33,7 +36,7 @@ import 'report_panel.dart';
 import 'report_visuals.dart';
 import 'widget_editor.dart';
 
-enum _Mode { dashboards, library }
+enum _Mode { dashboards, library, skillMaps }
 
 enum _DashboardAction { rename, duplicate, delete }
 
@@ -272,18 +275,21 @@ class _ReportsViewState extends State<ReportsView> {
               subtitle: scope.isOrganisation
                   ? 'Build your own dashboards from ready-made reports – competencies, employees, '
                       'readiness, gaps, projects and development – as tables, pie or bar charts and key '
-                      'numbers. Export any widget or a whole dashboard to Excel.'
+                      'numbers. Export any widget or a whole dashboard to Excel. Skill maps trace one '
+                      'person\'s projects, required and current levels and gaps with animated beams.'
                   : 'Your own dashboards for the ${_user.department} department: competencies, your '
                       'team\'s competency sets, readiness against project needs and every gap. Other '
-                      'departments are never included. Export to Excel or CSV.',
-              // At most 380px, never wider than the space there is (the
+                      'departments are never included. Export to Excel or CSV. Skill maps trace one team '
+                      'member\'s projects, required and current levels and gaps with animated beams.',
+              // At most 520px, never wider than the space there is (the
               // switch sizes itself from what it gets – no negative width).
               trailing: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 380),
+                constraints: const BoxConstraints(maxWidth: 520),
                 child: ModeSwitch<_Mode>(
                   options: const [
                     ModeOption(_Mode.dashboards, 'My dashboards', Icons.dashboard_customize_outlined),
                     ModeOption(_Mode.library, 'Report library', Icons.insights_rounded),
+                    ModeOption(_Mode.skillMaps, 'Skill maps', Icons.hub_outlined),
                   ],
                   selected: _mode,
                   onChanged: (m) => setState(() => _mode = m),
@@ -293,10 +299,16 @@ class _ReportsViewState extends State<ReportsView> {
             const SizedBox(height: 16),
             Align(alignment: Alignment.centerLeft, child: ReportScopeBanner(scope: scope)),
             const SizedBox(height: 22),
-            if (_mode == _Mode.library)
+            if (_mode == _Mode.skillMaps)
+              TurnIn(
+                replayKey: _mode,
+                child: SkillMapExplorer(user: _user, onOpenEmployee: widget.onOpenEmployee),
+              )
+            else if (_mode == _Mode.library)
               TurnIn(
                 replayKey: _mode,
                 child: _Library(
+                  onOpenSkillMaps: () => setState(() => _mode = _Mode.skillMaps),
                   onOpen: _openReport,
                   onAdd: (type) async {
                     var target = selected;
@@ -766,8 +778,9 @@ class TemplateTile extends StatelessWidget {
 // ================================================================ library
 
 class _Library extends StatelessWidget {
-  const _Library({required this.onOpen, required this.onAdd, required this.targetName});
+  const _Library({required this.onOpenSkillMaps, required this.onOpen, required this.onAdd, required this.targetName});
 
+  final VoidCallback onOpenSkillMaps;
   final ValueChanged<ReportType> onOpen;
   final ValueChanged<ReportType> onAdd;
 
@@ -779,6 +792,8 @@ class _Library extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _SkillMapTile(onOpen: onOpenSkillMaps),
+        const SizedBox(height: 28),
         for (final dataset in ReportDataset.values) ...[
           PanelTitle(dataset.label, subtitle: dataset.blurb),
           const SizedBox(height: 12),
@@ -809,6 +824,107 @@ class _Library extends StatelessWidget {
       ],
     );
   }
+}
+
+/// The skill map, at the top of the library (it is per person, so it opens
+/// its own view instead of a report panel).
+class _SkillMapTile extends StatelessWidget {
+  const _SkillMapTile({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 700;
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('EMPLOYEE SKILL MAP', style: HomeText.display(narrow ? 24 : 28, color: Colors.white, height: 1.05)),
+        const SizedBox(height: 8),
+        Text(
+          'One person on one picture: their projects, what each needs from their role, the levels they '
+          'hold and the gaps – joined by animated beams. Hover to trace a project or a competency, '
+          'filter by project, save it as an image.',
+          style: HomeText.body(13.5, color: HomeColors.onInk, height: 1.5),
+        ),
+        const SizedBox(height: 14),
+        PillButton(label: 'Open skill maps', variant: PillVariant.light, height: 44, fontSize: 13.5, onPressed: onOpen),
+      ],
+    );
+    return LiftCard(
+      padding: const EdgeInsets.all(22),
+      radius: 24,
+      liftBy: 6,
+      tiltDegrees: 3,
+      color: HomeColors.ink,
+      child: narrow
+          ? text
+          : Row(
+              children: [
+                const _BeamGlyph(),
+                const SizedBox(width: 22),
+                Expanded(child: text),
+              ],
+            ),
+    );
+  }
+}
+
+/// A small still drawing of the map (three inputs → a hub → two outputs).
+class _BeamGlyph extends StatelessWidget {
+  const _BeamGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(width: 150, height: 96, child: CustomPaint(painter: _BeamGlyphPainter()));
+  }
+}
+
+class _BeamGlyphPainter extends CustomPainter {
+  const _BeamGlyphPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final hub = Offset(size.width / 2, size.height / 2);
+    final inputs = [for (var i = 0; i < 3; i++) Offset(10, 14 + i * (size.height - 28) / 2)];
+    final outputs = [Offset(size.width - 10, size.height * 0.3), Offset(size.width - 10, size.height * 0.7)];
+    Path curve(Offset a, Offset b) {
+      final dx = (b.dx - a.dx) / 2;
+      return Path()
+        ..moveTo(a.dx, a.dy)
+        ..cubicTo(a.dx + dx, a.dy, b.dx - dx, b.dy, b.dx, b.dy);
+    }
+
+    final blue = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = const Color(0xFF8FC2FF);
+    final orange = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..color = HomeColors.peach;
+    for (var i = 0; i < inputs.length; i++) {
+      canvas.drawPath(curve(inputs[i], hub), i == 2 ? orange : blue);
+      canvas.drawCircle(inputs[i], 6, Paint()..color = Colors.white);
+    }
+    for (var i = 0; i < outputs.length; i++) {
+      canvas.drawPath(curve(hub, outputs[i]), i == 1 ? orange : blue);
+      canvas.drawCircle(outputs[i], 6, Paint()..color = i == 1 ? HomeColors.peach : Colors.white);
+    }
+    canvas.drawCircle(hub, 17, Paint()..color = const Color(0xFF3C7BE8));
+    canvas.drawCircle(
+      hub,
+      21,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_BeamGlyphPainter oldDelegate) => false;
 }
 
 class _LibraryTile extends StatelessWidget {
