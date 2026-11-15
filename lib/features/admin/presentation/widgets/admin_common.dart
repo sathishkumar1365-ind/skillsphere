@@ -617,6 +617,9 @@ class ModeOption<T> {
   final int? badge;
 }
 
+const double _modePadding = 4;
+const double _modeBorder = 1;
+
 /// Pill switch with a sliding ink highlight (2–5 options).
 class ModeSwitch<T> extends StatelessWidget {
   const ModeSwitch({super.key, required this.options, required this.selected, required this.onChanged});
@@ -632,20 +635,27 @@ class ModeSwitch<T> extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = math.min(constraints.maxWidth, 180.0 * options.length);
-        final optionWidth = (width - 8) / options.length;
+        // Inner width = width minus the 4px padding AND the 1px border on
+        // each side (the border was missed before: 2px overflow).
+        const inset = _modePadding + _modeBorder;
+        final optionWidth = (width - inset * 2) / options.length;
         final showIcons = optionWidth >= 128;
         return Align(
           alignment: Alignment.centerLeft,
           child: Container(
             width: width,
             height: 52,
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(_modePadding),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: const BorderRadius.all(Radius.circular(999)),
-              border: Border.all(color: HomeColors.chipBorder),
+              border: Border.all(color: HomeColors.chipBorder, width: _modeBorder),
             ),
+            // expand + stretch: every option fills the pill's full height,
+            // so its label is centred vertically (a loose Stack let the row
+            // shrink to the text height and sit at the top).
             child: Stack(
+              fit: StackFit.expand,
               children: [
                 AnimatedPositioned(
                   duration: reduceMotion ? Duration.zero : const Duration(milliseconds: 380),
@@ -662,6 +672,7 @@ class ModeSwitch<T> extends StatelessWidget {
                   ),
                 ),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     for (final o in options)
                       SizedBox(

@@ -131,7 +131,10 @@ class ConsoleTopBar extends StatelessWidget {
                 ),
               ),
             ],
-            Flexible(
+            // Expanded (not Flexible + Spacer): a loose Flexible leaves its
+            // unused share of the free space AFTER the last child, which
+            // parked the avatar in the middle of the bar.
+            Expanded(
               child: Text(
                 title,
                 maxLines: 1,
@@ -139,7 +142,7 @@ class ConsoleTopBar extends StatelessWidget {
                 style: HomeText.body(textSize, weight: FontWeight.w600, color: HomeColors.body),
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 12),
             if (showLinks && select != null)
               for (var i = 0; i < links.length; i++)
                 Padding(

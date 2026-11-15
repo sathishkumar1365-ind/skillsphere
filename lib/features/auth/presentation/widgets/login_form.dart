@@ -198,11 +198,17 @@ class _LoginFormState extends State<LoginForm> {
                   ),
                 ),
                 const SizedBox(width: 8),
+                // Align fills the Flexible's share, so the link sits at the
+                // right edge (a bare loose Flexible would leave the unused
+                // space after it and stop the link short of the edge).
                 Flexible(
-                  child: _TextLink(
-                    'Forgot Password',
-                    onTap: widget.onForgotPassword ??
-                        () => _toast('Forgot password tapped'),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _TextLink(
+                      'Forgot Password',
+                      onTap: widget.onForgotPassword ??
+                          () => _toast('Forgot password tapped'),
+                    ),
                   ),
                 ),
               ],

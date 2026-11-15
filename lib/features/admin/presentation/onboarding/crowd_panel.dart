@@ -264,14 +264,21 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
                   onSelected: (s) => setState(() => _schedule = s),
                 ),
                 const SizedBox(height: 12),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: _deactivate,
-                  onChanged: (v) => setState(() => _deactivate = v),
-                  title: Text('Deactivate employees whose Crowd account is disabled',
-                      style: HomeText.body(14, weight: FontWeight.w600, color: HomeColors.ink)),
-                  subtitle: Text('They become Inactive in SkillSphere; their history stays.',
-                      style: HomeText.body(12.5, color: HomeColors.muted)),
+                // Own (transparent) Material: the card behind has a colour,
+                // which would hide the tile's ink and trigger Flutter's
+                // "ListTile background color or ink splashes may be
+                // invisible" warning.
+                Material(
+                  type: MaterialType.transparency,
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _deactivate,
+                    onChanged: (v) => setState(() => _deactivate = v),
+                    title: Text('Deactivate employees whose Crowd account is disabled',
+                        style: HomeText.body(14, weight: FontWeight.w600, color: HomeColors.ink)),
+                    subtitle: Text('They become Inactive in SkillSphere; their history stays.',
+                        style: HomeText.body(12.5, color: HomeColors.muted)),
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Wrap(

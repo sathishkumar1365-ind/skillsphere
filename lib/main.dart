@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/app_colors.dart';
+import 'core/app_fonts.dart';
 import 'core/auth/app_user.dart';
 import 'core/auth/auth_service.dart';
 import 'core/sphere_page_route.dart';
@@ -11,7 +12,13 @@ import 'features/home/presentation/home_page.dart';
 import 'features/organization/data/org_models.dart';
 import 'features/organization/presentation/org_dashboard_page.dart';
 
-void main() => runApp(const SkillSphereApp());
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Start downloading every font weight now, while the login page shows –
+  // see AppFonts for why the dashboards must not be built before they load.
+  AppFonts.preload();
+  runApp(const SkillSphereApp());
+}
 
 /// Lets us navigate and show messages from outside a widget's build method.
 final navigatorKey = GlobalKey<NavigatorState>();
@@ -28,6 +35,9 @@ final messengerKey = GlobalKey<ScaffoldMessengerState>();
 Future<void> _handleSignIn(String email, String password, bool rememberMe) async {
   try {
     final user = await AuthService.instance.signIn(email, password);
+    // Usually done already (fonts load while the user types); waits at most
+    // a few seconds on a slow network. The Sign In button keeps spinning.
+    await AppFonts.ready();
     messengerKey.currentState?.hideCurrentSnackBar();
     // pushReplacement: the browser/back button won't return to the login page.
     navigatorKey.currentState?.pushReplacement(_landingRouteFor(user));
