@@ -40,6 +40,89 @@ class CompetencyRepository {
   /// Later: GET /api/competencies.
   Future<void> load() async {}
 
+  // ------------------------------------------------ employee levels
+  //
+  // The holders inside each competency are the single source of truth for
+  // "who holds what at which level": the employee profile, the gap table,
+  // the details panel and the approvals all read them from here.
+
+  List<Competency>? _indexedList;
+  Map<String, Competency> _byId = const {};
+  Map<String, List<HeldCompetency>> _byEmployee = const {};
+
+  void _reindex() {
+    final list = competencies.value;
+    if (identical(list, _indexedList)) return;
+    final byId = <String, Competency>{};
+    final byEmployee = <String, List<HeldCompetency>>{};
+    for (final c in list) {
+      byId[c.id] = c;
+      for (final h in c.holders) {
+        (byEmployee[h.employeeId] ??= <HeldCompetency>[]).add(HeldCompetency(c, h));
+      }
+    }
+    _byId = byId;
+    _byEmployee = byEmployee;
+    _indexedList = list;
+  }
+
+  Competency? byId(String id) {
+    _reindex();
+    return _byId[id];
+  }
+
+  /// Everything [employeeId] holds, highest level first.
+  List<HeldCompetency> levelsFor(String employeeId) {
+    _reindex();
+    final list = [...?_byEmployee[employeeId]]
+      ..sort((a, b) {
+        final byLevel = b.level.compareTo(a.level);
+        return byLevel != 0 ? byLevel : a.competency.name.compareTo(b.competency.name);
+      });
+    return list;
+  }
+
+  CompetencyHolder? holderOf(String competencyId, String employeeId) {
+    _reindex();
+    for (final held in _byEmployee[employeeId] ?? const <HeldCompetency>[]) {
+      if (held.competency.id == competencyId) return held.holder;
+    }
+    return null;
+  }
+
+  /// Sets [employeeId]'s level in several competencies at once (HRD only):
+  /// competency id → level 0–5, or null to remove it from the profile.
+  ///
+  /// Later: PUT /api/employees/{id}/competencies (SUPER_ADMIN). Team Leads
+  /// never call this: their changes go through HR approval instead.
+  void setLevels({
+    required AppUser by,
+    required String employeeId,
+    required Map<String, int?> levels,
+    bool verified = true,
+  }) {
+    if (!by.role.canManageCompetencies) {
+      throw const CompetencyException('Only the HRD team can change competency levels.');
+    }
+    if (levels.isEmpty) return;
+    competencies.value = List<Competency>.unmodifiable([
+      for (final c in competencies.value)
+        if (levels.containsKey(c.id))
+          c.copyWith(holders: List<CompetencyHolder>.unmodifiable([
+            for (final h in c.holders)
+              if (h.employeeId != employeeId) h,
+            if (levels[c.id] case final int level)
+              CompetencyHolder(
+                employeeId,
+                level.clamp(CompetencyLevel.min, CompetencyLevel.max).toInt(),
+                verified: verified,
+              ),
+          ]))
+        else
+          c,
+    ]);
+  }
+
   /// The competency with the same name (ignoring case and extra spaces).
   Competency? findByName(String name) {
     final key = Competency.keyFor(name);

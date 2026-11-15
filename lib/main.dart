@@ -20,7 +20,7 @@ final messengerKey = GlobalKey<ScaffoldMessengerState>();
 // ---------------------------------------------------------------------------
 // TEMPORARY test logins (see lib/core/auth/auth_service.dart):
 //   Super Admin (HRD) : hrd@gmail.com   / hrd123   → Overall Dashboard
-//   Admin (Team Lead) : tl@gmail.com    / tl123    → Home + "My Team"
+//   Admin (Team Lead) : tl@gmail.com    / teamlead123 → Home + "My Team"
 //   End User          : admin@gmail.com / root123  → Home
 // ---------------------------------------------------------------------------
 
@@ -46,8 +46,8 @@ Route<void> _landingRouteFor(AppUser user) => switch (user.role) {
       UserRole.admin => HomePage.route(
           user: user,
           data: _homeDataFor(user),
-          // Team Leads see their OWN department only.
-          team: OrgData.sample.employeesIn(user.department),
+          // No team list passed: the Home page shows the Team Lead's OWN
+          // department live from the HRD console data.
           onLogout: _handleLogout,
         ),
       UserRole.endUser => HomePage.route(

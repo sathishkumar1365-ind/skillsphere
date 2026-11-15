@@ -67,6 +67,10 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1022', 2, verified: false),
       CompetencyHolder('EMP-1023', 4),
       CompetencyHolder('EMP-1028', 1, verified: false),
+      CompetencyHolder('EMP-1005', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1012', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1024', 1),  // added for project gap samples
+      CompetencyHolder('EMP-1026', 2),  // added for project gap samples
     ],
   ),
   Competency(
@@ -91,6 +95,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1008', 3),
       CompetencyHolder('EMP-1011', 3),
       CompetencyHolder('EMP-1033', 1, verified: false),
+      CompetencyHolder('EMP-1007', 2),  // added for project gap samples
     ],
   ),
   Competency(
@@ -118,6 +123,15 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1020', 3),
       CompetencyHolder('EMP-1021', 3),
       CompetencyHolder('EMP-1024', 3),
+      CompetencyHolder('EMP-1002', 3),  // added for project gap samples
+      CompetencyHolder('EMP-1004', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1008', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1005', 3),  // added for project gap samples
+      CompetencyHolder('EMP-1012', 3),  // added for project gap samples
+      CompetencyHolder('EMP-1009', 3),  // added for project gap samples
+      CompetencyHolder('EMP-1007', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1011', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1018', 2),  // added for project gap samples
     ],
   ),
 
@@ -146,6 +160,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1015', 4),
       CompetencyHolder('EMP-1025', 3),
       CompetencyHolder('EMP-1030', 2, verified: false),
+      CompetencyHolder('EMP-1017', 2),  // added for project gap samples
     ],
   ),
   Competency(
@@ -171,6 +186,9 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1026', 4),
       CompetencyHolder('EMP-1028', 3),
       CompetencyHolder('EMP-1029', 2),
+      CompetencyHolder('EMP-1003', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1020', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1027', 3),  // added for project gap samples
     ],
   ),
   Competency(
@@ -193,6 +211,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1025', 5),
       CompetencyHolder('EMP-1026', 2),
       CompetencyHolder('EMP-1028', 4),
+      CompetencyHolder('EMP-1027', 2),  // added for project gap samples
     ],
   ),
   Competency(
@@ -239,6 +258,8 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1014', 3),
       CompetencyHolder('EMP-1015', 3),
       CompetencyHolder('EMP-1016', 1, verified: false),
+      CompetencyHolder('EMP-1017', 3),  // added for project gap samples
+      CompetencyHolder('EMP-1018', 2),  // added for project gap samples
     ],
   ),
 
@@ -290,6 +311,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1003', 2),
       CompetencyHolder('EMP-1009', 2, verified: false),
       CompetencyHolder('EMP-1012', 3),
+      CompetencyHolder('EMP-1011', 2),  // added for project gap samples
     ],
   ),
   Competency(
@@ -312,6 +334,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1030', 4),
       CompetencyHolder('EMP-1031', 1, verified: false),
       CompetencyHolder('EMP-1032', 4),
+      CompetencyHolder('EMP-1033', 2),  // added for project gap samples
     ],
   ),
   Competency(

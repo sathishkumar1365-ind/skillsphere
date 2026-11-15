@@ -139,6 +139,23 @@ class OrgData {
     required this.pendingVerifications,
   });
 
+  /// The same data with live employees, departments or projects (from the
+  /// HRD console repositories).
+  OrgData copyWith({
+    Map<String, String>? departmentLeads,
+    List<EmployeeRecord>? employees,
+    List<OrgProject>? projects,
+    int? pendingVerifications,
+  }) =>
+      OrgData(
+        organizationName: organizationName,
+        departmentLeads: departmentLeads ?? this.departmentLeads,
+        employees: employees ?? this.employees,
+        skillDemand: skillDemand,
+        projects: projects ?? this.projects,
+        pendingVerifications: pendingVerifications ?? this.pendingVerifications,
+      );
+
   final String organizationName;
 
   /// Department name → Team Lead. Also fixes the order departments appear in.

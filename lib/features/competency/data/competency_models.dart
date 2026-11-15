@@ -164,6 +164,20 @@ class Competency {
   final DateTime createdAt;
   final String createdBy;
 
+  /// The same competency with a different list of holders (used when HRD
+  /// sets an employee's level or approves a level-up).
+  Competency copyWith({List<CompetencyHolder>? holders}) => Competency(
+        id: id,
+        name: name,
+        category: category,
+        description: description,
+        levelDescriptions: levelDescriptions,
+        createdAt: createdAt,
+        createdBy: createdBy,
+        logoUrl: logoUrl,
+        holders: holders ?? this.holders,
+      );
+
   int get holderCount => holders.length;
 
   int get verifiedCount => holders.where((h) => h.verified).length;
@@ -217,4 +231,15 @@ class Competency {
 
   /// Text the library search looks in.
   String get searchText => '$id $name ${category.label} $description'.toLowerCase();
+}
+
+/// One competency an employee holds, with their rating.
+class HeldCompetency {
+  const HeldCompetency(this.competency, this.holder);
+
+  final Competency competency;
+  final CompetencyHolder holder;
+
+  int get level => holder.level;
+  bool get verified => holder.verified;
 }

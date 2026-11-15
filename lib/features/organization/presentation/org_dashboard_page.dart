@@ -2,6 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../../core/auth/app_user.dart';
 import '../../../core/sphere_page_route.dart';
+import '../../admin/data/approvals.dart';
+import '../../admin/data/employees.dart';
+import '../../admin/data/insights.dart';
+import '../../admin/data/org_structure.dart';
+import '../../admin/presentation/admin_console_page.dart';
+import '../../admin/presentation/console_section.dart';
+import '../../admin/presentation/employees/employee_profile_page.dart';
 import '../../competency/presentation/competency_section.dart';
 import '../../home/presentation/home_theme.dart';
 import '../../home/presentation/widgets/home_common.dart';
@@ -20,6 +27,11 @@ import 'widgets/skill_coverage_section.dart';
 /// organisation-wide data: overview, departments, skill coverage, the
 /// competency library (with the HRD-only Add form), projects and the full
 /// employee directory. The nav bar jumps between sections.
+///
+/// The settings (gear) icon in the nav bar opens the HRD console
+/// (onboarding, all employees, profile changes, approvals, projects, roles,
+/// groups & departments). Employees, departments and projects shown here
+/// are live: anything changed in the console appears immediately.
 class OrgDashboardPage extends StatefulWidget {
   const OrgDashboardPage({
     super.key,
@@ -77,6 +89,33 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
 
   void _scrollTo(int index) => _page.currentState?.scrollToSection(index);
 
+  void _openConsole([ConsoleSection section = ConsoleSection.onboarding]) {
+    Navigator.of(context).push(AdminConsolePage.route(
+      user: widget.user,
+      initialSection: section,
+      onLogout: widget.onLogout,
+    ));
+  }
+
+  void _openProfile(String employeeId) {
+    Navigator.of(context).push(EmployeeProfilePage.route(
+      user: widget.user,
+      employeeId: employeeId,
+      onLogout: widget.onLogout,
+    ));
+  }
+
+  /// [OrgData] with the live employees, departments and projects.
+  OrgData _liveData() {
+    final employees = EmployeeRepository.instance;
+    return widget.data.copyWith(
+      employees: Insights.records(),
+      departmentLeads: OrgStructureRepository.instance.departmentLeads(employees.nameOf),
+      projects: Insights.orgProjects(),
+      pendingVerifications: ApprovalRepository.instance.pendingCount,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
@@ -84,7 +123,16 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
     if (!user.role.canViewOrganization) {
       return _NoAccess(onLogout: widget.onLogout);
     }
-    final data = widget.data;
+    return ListenableBuilder(
+      listenable: Insights.listenable,
+      builder: (context, _) => _buildDashboard(context, _liveData()),
+    );
+  }
+
+  Widget _buildDashboard(BuildContext context, OrgData data) {
+    final user = widget.user;
+    final openEmployee =
+        widget.onOpenEmployee ?? (EmployeeRecord e) => _openProfile(e.id);
 
     final sections = <SphereSection>[
       SphereSection(
@@ -108,7 +156,7 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
         child: SkillCoverageSection(
           data: data,
           onOpenReviewQueue:
-              widget.onOpenReviewQueue ?? () => _notConnected('Review queue'),
+              widget.onOpenReviewQueue ?? () => _openConsole(ConsoleSection.approvals),
         ),
       ),
       SphereSection(
@@ -116,7 +164,7 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
         child: CompetencySection(
           user: user,
           employees: data.employees,
-          onOpenEmployee: widget.onOpenEmployee,
+          onOpenEmployee: openEmployee,
         ),
       ),
       SphereSection(
@@ -124,7 +172,7 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
         child: OrgProjectsSection(
           projects: data.projects,
           onOpenProject: widget.onOpenProject ??
-              (OrgProject project) => _notConnected('Project details'),
+              (OrgProject project) => _openConsole(ConsoleSection.projects),
         ),
       ),
       SphereSection(
@@ -141,8 +189,7 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
             EmployeeDirectory(
               employees: data.employees,
               departments: data.departmentNames,
-              onOpenEmployee: widget.onOpenEmployee ??
-                  (EmployeeRecord e) => _notConnected('Employee profile'),
+              onOpenEmployee: openEmployee,
             ),
           ],
         ),
@@ -159,8 +206,11 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
         user: user,
         unreadNotifications: data.pendingVerifications > 0 ? 1 : 0,
         onSearch: widget.onSearch ?? () => _notConnected('Search'),
-        onNotifications: widget.onNotifications ?? () => _notConnected('Notifications'),
-        onProfile: widget.onProfile ?? () => _notConnected('Profile'),
+        onNotifications: widget.onNotifications ?? () => _openConsole(ConsoleSection.approvals),
+        onProfile: widget.onProfile ?? () => _openProfile(user.id),
+        // Settings icon: HRD team only.
+        onOpenConsole: user.role.canManageOrganization ? _openConsole : null,
+        consoleBadge: data.pendingVerifications,
         onLogout: widget.onLogout ?? () => _notConnected('Log out'),
       ),
     );

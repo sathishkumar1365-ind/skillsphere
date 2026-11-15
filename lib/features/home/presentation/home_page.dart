@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../core/auth/app_user.dart';
 import '../../../core/sphere_page_route.dart';
 import '../../additional_competency/presentation/my_additional_section.dart';
+import '../../admin/data/insights.dart';
+import '../../admin/presentation/employees/all_employees_view.dart';
+import '../../admin/presentation/employees/employee_profile_page.dart';
 import '../../organization/data/org_models.dart';
 import '../../organization/presentation/widgets/team_section.dart';
 import '../data/home_models.dart';
@@ -40,7 +43,8 @@ class HomePage extends StatefulWidget {
   final AppUser user;
   final HomeData data;
 
-  /// Employees of the Team Lead's department (Admin role only).
+  /// Employees of the Team Lead's department (Admin role only). Leave it
+  /// empty to show the live team from the HRD console data.
   final List<EmployeeRecord> team;
 
   final VoidCallback? onLogout;
@@ -89,6 +93,18 @@ class _HomePageState extends State<HomePage> {
 
   void _scrollTo(int index) => _page.currentState?.scrollToSection(index);
 
+  void _openProfile(String employeeId) {
+    Navigator.of(context).push(EmployeeProfilePage.route(
+      user: widget.user,
+      employeeId: employeeId,
+      onLogout: widget.onLogout,
+    ));
+  }
+
+  void _openTeamDirectory() {
+    Navigator.of(context).push(AllEmployeesPage.route(user: widget.user, onLogout: widget.onLogout));
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
@@ -134,12 +150,24 @@ class _HomePageState extends State<HomePage> {
       if (_showTeam)
         SphereSection(
           label: 'My Team',
-          child: TeamSection(
-            department: user.department,
-            members: widget.team,
-            onOpenEmployee: widget.onOpenEmployee ??
-                (EmployeeRecord e) => _notConnected('Employee profile'),
-          ),
+          child: _showTeam && widget.team.isEmpty
+              // Live: follows profile updates, moves and onboarding.
+              ? ListenableBuilder(
+                  listenable: Insights.listenable,
+                  builder: (context, _) => TeamSection(
+                    department: user.department,
+                    members: Insights.records().where((e) => e.department == user.department).toList(),
+                    onOpenEmployee:
+                        widget.onOpenEmployee ?? (EmployeeRecord e) => _openProfile(e.id),
+                    onOpenDirectory: _openTeamDirectory,
+                  ),
+                )
+              : TeamSection(
+                  department: user.department,
+                  members: widget.team,
+                  onOpenEmployee: widget.onOpenEmployee ?? (EmployeeRecord e) => _openProfile(e.id),
+                  onOpenDirectory: _openTeamDirectory,
+                ),
         ),
     ];
 
@@ -154,7 +182,7 @@ class _HomePageState extends State<HomePage> {
         unreadNotifications: data.unreadNotifications,
         onSearch: widget.onSearch ?? () => _notConnected('Search'),
         onNotifications: widget.onNotifications ?? () => _notConnected('Notifications'),
-        onProfile: widget.onProfile ?? () => _notConnected('Profile'),
+        onProfile: widget.onProfile ?? () => _openProfile(user.id),
         onLogout: widget.onLogout ?? () => _notConnected('Log out'),
       ),
     );

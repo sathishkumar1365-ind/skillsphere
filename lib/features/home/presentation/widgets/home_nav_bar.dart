@@ -26,6 +26,8 @@ class HomeNavBar extends StatelessWidget {
     required this.onProfile,
     required this.onLogout,
     this.unreadNotifications = 0,
+    this.onOpenConsole,
+    this.consoleBadge = 0,
   });
 
   final List<String> links;
@@ -38,11 +40,20 @@ class HomeNavBar extends StatelessWidget {
   final VoidCallback onLogout;
   final int unreadNotifications;
 
+  /// Opens the HRD console (settings icon). Pass it ONLY for the HRD team:
+  /// the icon is not shown when this is null.
+  final VoidCallback? onOpenConsole;
+
+  /// Items waiting in the console (e.g. pending approvals) – shown as a dot.
+  final int consoleBadge;
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     // More links need more room; below the threshold they move into a menu.
-    final showLinks = width >= (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900));
+    final extra = onOpenConsole == null ? 0 : 52;
+    final showLinks =
+        width >= (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900)) + extra;
     final showName = width >= 420;
     final unread = unreadNotifications;
 
@@ -78,6 +89,18 @@ class HomeNavBar extends StatelessWidget {
                   ),
                 ),
               const Spacer(),
+            ],
+            if (onOpenConsole case final openConsole?) ...[
+              _RoundIconButton(
+                icon: Icons.settings_outlined,
+                tooltip: consoleBadge > 0
+                    ? 'HRD console, $consoleBadge waiting for approval'
+                    : 'HRD console',
+                onTap: openConsole,
+                showDot: consoleBadge > 0,
+                spinOnHover: true,
+              ),
+              const SizedBox(width: 8),
             ],
             _RoundIconButton(
               icon: Icons.search_rounded,
@@ -178,12 +201,13 @@ class _NavLink extends StatelessWidget {
   }
 }
 
-class _RoundIconButton extends StatelessWidget {
+class _RoundIconButton extends StatefulWidget {
   const _RoundIconButton({
     required this.icon,
     required this.tooltip,
     required this.onTap,
     this.showDot = false,
+    this.spinOnHover = false,
   });
 
   final IconData icon;
@@ -191,8 +215,23 @@ class _RoundIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final bool showDot;
 
+  /// Turns the icon a little on hover (used by the settings gear).
+  final bool spinOnHover;
+
+  @override
+  State<_RoundIconButton> createState() => _RoundIconButtonState();
+}
+
+class _RoundIconButtonState extends State<_RoundIconButton> {
+  bool _hover = false;
+
   @override
   Widget build(BuildContext context) {
+    final icon = widget.icon;
+    final tooltip = widget.tooltip;
+    final onTap = widget.onTap;
+    final showDot = widget.showDot;
+    final turns = widget.spinOnHover && _hover && !MediaQuery.disableAnimationsOf(context) ? 0.25 : 0.0;
     return Tooltip(
       message: tooltip,
       child: Material(
@@ -201,13 +240,19 @@ class _RoundIconButton extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          onHover: widget.spinOnHover ? (value) => setState(() => _hover = value) : null,
           child: SizedBox(
             width: 44,
             height: 44,
             child: Stack(
               alignment: Alignment.center,
               children: [
-                Icon(icon, size: 20, color: HomeColors.ink),
+                AnimatedRotation(
+                  turns: turns,
+                  duration: const Duration(milliseconds: 450),
+                  curve: HomeMotion.ease,
+                  child: Icon(icon, size: 20, color: HomeColors.ink),
+                ),
                 if (showDot)
                   Positioned(
                     top: 10,

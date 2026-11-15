@@ -17,11 +17,15 @@ class TeamSection extends StatelessWidget {
     required this.department,
     required this.members,
     required this.onOpenEmployee,
+    this.onOpenDirectory,
   });
 
   final String department;
   final List<EmployeeRecord> members;
   final ValueChanged<EmployeeRecord> onOpenEmployee;
+
+  /// Opens the full team directory page (profiles, filters, gaps).
+  final VoidCallback? onOpenDirectory;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +44,15 @@ class TeamSection extends StatelessWidget {
         SectionHeader(
           title: 'MY TEAM',
           subtitle: '$department · $count people. Their skills, readiness and gaps. '
-              'Only Team Leads and HRD can see this.',
+              'Only Team Leads and HRD can see this. Open a person for their full '
+              'profile, project gaps and level-up requests.',
+          trailing: onOpenDirectory == null
+              ? null
+              : PillButton(
+                  label: 'Open team directory',
+                  variant: PillVariant.outline,
+                  onPressed: onOpenDirectory,
+                ),
         ),
         const SizedBox(height: 32),
         EqualHeightGrid(

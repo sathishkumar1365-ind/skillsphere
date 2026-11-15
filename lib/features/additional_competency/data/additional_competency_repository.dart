@@ -132,6 +132,57 @@ class AdditionalCompetencyRepository {
     return entry;
   }
 
+  /// HRD adds names to a new employee's list while onboarding them (from the
+  /// onboarding form or a bulk import). Names the employee already has, or
+  /// that are in the competency library, are skipped. Returns those added.
+  ///
+  /// Later: POST /api/employees/{id}/additional-competencies (SUPER_ADMIN).
+  List<AdditionalCompetency> addForEmployee({
+    required AppUser by,
+    required String employeeId,
+    required List<String> names,
+  }) {
+    if (!by.role.canManageOrganization) {
+      throw const AdditionalCompetencyException(
+          'Only the HRD team can add competencies for another employee.');
+    }
+    final added = <AdditionalCompetency>[];
+    final taken = {for (final e in forEmployee(employeeId)) e.key};
+    var number = _highestNumber();
+    for (final raw in names) {
+      final name = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+      final key = AdditionalCompetency.keyFor(name);
+      if (name.isEmpty ||
+          name.length > AdditionalCompetencyRules.nameMax ||
+          taken.contains(key) ||
+          CompetencyRepository.instance.findByName(name) != null ||
+          taken.length >= AdditionalCompetencyRules.maxPerEmployee) {
+        continue;
+      }
+      taken.add(key);
+      number++;
+      added.add(AdditionalCompetency(
+        id: 'ADD-${number.toString().padLeft(3, '0')}',
+        employeeId: employeeId,
+        name: _existingSpelling(name) ?? name,
+        addedAt: DateTime.now(),
+      ));
+    }
+    if (added.isNotEmpty) {
+      entries.value = List<AdditionalCompetency>.unmodifiable([...entries.value, ...added]);
+    }
+    return added;
+  }
+
+  int _highestNumber() {
+    var highest = 0;
+    for (final e in entries.value) {
+      final n = int.tryParse(e.id.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      if (n > highest) highest = n;
+    }
+    return highest;
+  }
+
   /// Removes one of the signed-in user's own entries.
   Future<void> remove(AdditionalCompetency entry, {required AppUser by}) async {
     if (entry.employeeId != by.id) {

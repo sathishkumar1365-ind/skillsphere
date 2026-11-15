@@ -30,6 +30,14 @@ enum UserRole {
   /// Adding competencies to the library: HRD team (Super Admin) only.
   bool get canManageCompetencies => this == UserRole.superAdmin;
 
+  /// The HRD console (settings icon): onboarding, all employees, profile
+  /// changes, approvals, projects, roles, groups & departments.
+  bool get canManageOrganization => this == UserRole.superAdmin;
+
+  /// Team Leads may view and update the profiles of their own department
+  /// (not group, department or status) and request level-ups for HR approval.
+  bool get canEditTeamProfiles => this == UserRole.admin;
+
   /// Maps the role string the Spring Boot API will send (e.g. in the JWT).
   static UserRole fromApi(String value) => switch (value.toUpperCase()) {
         'SUPER_ADMIN' => UserRole.superAdmin,
