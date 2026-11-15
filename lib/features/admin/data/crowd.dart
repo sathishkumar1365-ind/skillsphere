@@ -12,7 +12,7 @@
 //   POST /api/integrations/crowd/test            test the connection
 //   POST /api/integrations/crowd/preview/users   what would change
 //   POST /api/integrations/crowd/apply/users     apply the chosen changes
-//   POST /api/integrations/crowd/preview/groups  /apply/groups
+//   POST /api/integrations/crowd/preview/groups  /apply/groups   (div-/grp-/dept- prefixes)
 // The scheduled sync (hourly/daily) runs on the server.
 //
 // TEMPORARY: [CrowdService] simulates a Crowd directory (sample users and
@@ -43,6 +43,7 @@ class CrowdSettings {
     required this.passwordSaved,
     this.userGroup = 'mobis-employees',
     this.employeeIdAttribute = 'employeeNumber',
+    this.divisionPrefix = 'div-',
     this.groupPrefix = 'grp-',
     this.departmentPrefix = 'dept-',
     this.schedule = CrowdSchedule.manual,
@@ -64,7 +65,9 @@ class CrowdSettings {
   /// Crowd user attribute holding the employee ID.
   final String employeeIdAttribute;
 
-  /// Crowd groups named "grp-…" become groups, "dept-…" departments.
+  /// Crowd groups named "div-…" become divisions, "grp-…" groups and
+  /// "dept-…" departments (nested: dept in grp in div).
+  final String divisionPrefix;
   final String groupPrefix;
   final String departmentPrefix;
   final CrowdSchedule schedule;
@@ -107,14 +110,16 @@ class CrowdUser {
   final String city;
 }
 
-/// A Crowd group; departments name their parent group.
+/// A Crowd group; groups name their parent division, departments their
+/// parent group.
 class CrowdGroup {
   const CrowdGroup({required this.name, this.description = '', this.parent, this.members = 0});
 
   final String name;
   final String description;
 
-  /// For "dept-…" groups: the "grp-…" group it is nested in.
+  /// For "dept-…" groups: the "grp-…" group it is nested in; for "grp-…"
+  /// groups: the "div-…" division.
   final String? parent;
   final int members;
 }
@@ -153,23 +158,55 @@ class CrowdUserChange {
   String get key => '${kind.name}:${user.username}';
 }
 
+/// Which level of the structure a Crowd group becomes.
+enum CrowdStructureLevel {
+  division('Division'),
+  group('Group'),
+  department('Department');
+
+  const CrowdStructureLevel(this.label);
+  final String label;
+}
+
 /// One Crowd group a structure sync would add.
 class CrowdGroupChange {
   const CrowdGroupChange({
     required this.group,
-    required this.isDepartment,
+    required this.level,
     required this.displayName,
     this.parentDisplayName,
+    this.parentCrowd,
+    this.grandParentDisplayName,
+    this.grandParentCrowd,
   });
 
   final CrowdGroup group;
-  final bool isDepartment;
+  final CrowdStructureLevel level;
 
   /// "Functional Safety" (from "dept-functional-safety" or its description).
   final String displayName;
 
-  /// For departments: the group it will be placed in.
+  /// For groups: the division; for departments: the group it goes into.
   final String? parentDisplayName;
+  final String? parentCrowd;
+
+  /// For departments: the division of their group (needed when that group
+  /// is new too).
+  final String? grandParentDisplayName;
+  final String? grandParentCrowd;
+
+  bool get isDepartment => level == CrowdStructureLevel.department;
+  bool get isDivision => level == CrowdStructureLevel.division;
+
+  /// "Research & Development › Vehicle Software › Functional Safety"
+  String get path => [
+        if (grandParentDisplayName != null) grandParentDisplayName!,
+        if (parentDisplayName != null) parentDisplayName!,
+        displayName,
+      ].join(' › ');
+
+  /// Groups and departments need a known parent to be placed.
+  bool get hasParent => level == CrowdStructureLevel.division || parentDisplayName != null;
 }
 
 /// A finished synchronisation, for the history list.
@@ -185,7 +222,7 @@ class CrowdSyncRun {
   final String by;
   final String summary;
 
-  /// false = groups & departments sync.
+  /// false = org structure (divisions, groups & departments) sync.
   final bool usersSync;
 }
 
@@ -235,6 +272,7 @@ class CrowdService {
       passwordSaved: true,
       userGroup: draft.userGroup.trim(),
       employeeIdAttribute: draft.employeeIdAttribute.trim(),
+      divisionPrefix: draft.divisionPrefix.trim(),
       groupPrefix: draft.groupPrefix.trim(),
       departmentPrefix: draft.departmentPrefix.trim(),
       schedule: draft.schedule,
@@ -398,38 +436,85 @@ class CrowdService {
     );
   }
 
-  /// Crowd groups that aren't in SkillSphere yet.
+  /// Crowd groups that aren't in SkillSphere yet: divisions first, then
+  /// groups, then departments.
   Future<List<CrowdGroupChange>> previewGroups({required AppUser by}) async {
     requireHrd(by, 'synchronise with Crowd');
     final s = _requireSettings();
     await apiPause(700);
     final structure = OrgStructureRepository.instance;
     final byName = {for (final g in sampleCrowdGroups) g.name: g};
+
+    CrowdStructureLevel? levelOf(CrowdGroup g) {
+      if (s.divisionPrefix.isNotEmpty && g.name.startsWith(s.divisionPrefix)) return CrowdStructureLevel.division;
+      if (g.name.startsWith(s.groupPrefix)) return CrowdStructureLevel.group;
+      if (g.name.startsWith(s.departmentPrefix)) return CrowdStructureLevel.department;
+      return null;
+    }
+
+    String prefixOf(CrowdStructureLevel level) => switch (level) {
+          CrowdStructureLevel.division => s.divisionPrefix,
+          CrowdStructureLevel.group => s.groupPrefix,
+          CrowdStructureLevel.department => s.departmentPrefix,
+        };
+
+    /// Name in SkillSphere of the division behind a "div-…" Crowd group.
+    String? divisionName(String? crowdName) {
+      if (crowdName == null) return null;
+      final known = structure.divisionByCrowdGroup(crowdName);
+      if (known != null) return known.name;
+      final g = byName[crowdName];
+      return g == null ? null : displayNameOf(g, s.divisionPrefix);
+    }
+
+    /// Name in SkillSphere of the group behind a "grp-…" Crowd group, and
+    /// the Crowd name of its division.
+    (String?, String?) groupNameAndDivision(String? crowdName) {
+      if (crowdName == null) return (null, null);
+      final known = structure.groupByCrowdGroup(crowdName);
+      if (known != null) {
+        final division = structure.divisionById(known.divisionId);
+        return (known.name, division?.crowdGroup);
+      }
+      final g = byName[crowdName];
+      return g == null ? (null, null) : (displayNameOf(g, s.groupPrefix), g.parent);
+    }
+
     final changes = <CrowdGroupChange>[];
     for (final g in sampleCrowdGroups) {
-      final isGroup = g.name.startsWith(s.groupPrefix);
-      final isDepartment = g.name.startsWith(s.departmentPrefix);
-      if (!isGroup && !isDepartment) continue;
-      final display = displayNameOf(g, isGroup ? s.groupPrefix : s.departmentPrefix);
-      if (isGroup) {
-        if (structure.groupByCrowdGroup(g.name) != null || structure.groupByName(display) != null) continue;
-        changes.add(CrowdGroupChange(group: g, isDepartment: false, displayName: display));
-      } else {
-        if (structure.departmentByCrowdGroup(g.name) != null || structure.departmentByName(display) != null) {
-          continue;
-        }
-        final parent = g.parent == null ? null : byName[g.parent!];
-        final parentName = parent == null
-            ? null
-            : (structure.groupByCrowdGroup(parent.name)?.name ?? displayNameOf(parent, s.groupPrefix));
-        changes.add(CrowdGroupChange(
-          group: g,
-          isDepartment: true,
-          displayName: display,
-          parentDisplayName: parentName,
-        ));
+      final level = levelOf(g);
+      if (level == null) continue;
+      final display = displayNameOf(g, prefixOf(level));
+      switch (level) {
+        case CrowdStructureLevel.division:
+          if (structure.divisionByCrowdGroup(g.name) != null || structure.divisionByName(display) != null) continue;
+          changes.add(CrowdGroupChange(group: g, level: level, displayName: display));
+        case CrowdStructureLevel.group:
+          if (structure.groupByCrowdGroup(g.name) != null || structure.groupByName(display) != null) continue;
+          changes.add(CrowdGroupChange(
+            group: g,
+            level: level,
+            displayName: display,
+            parentDisplayName: divisionName(g.parent),
+            parentCrowd: g.parent,
+          ));
+        case CrowdStructureLevel.department:
+          if (structure.departmentByCrowdGroup(g.name) != null || structure.departmentByName(display) != null) {
+            continue;
+          }
+          final (groupName, divisionCrowd) = groupNameAndDivision(g.parent);
+          changes.add(CrowdGroupChange(
+            group: g,
+            level: level,
+            displayName: display,
+            parentDisplayName: groupName,
+            parentCrowd: g.parent,
+            grandParentDisplayName: divisionName(divisionCrowd),
+            grandParentCrowd: divisionCrowd,
+          ));
       }
     }
+    changes.sort((a, b) => a.level.index.compareTo(b.level.index));
     return changes;
   }
 
@@ -439,19 +524,32 @@ class CrowdService {
   }) async {
     requireHrd(by, 'synchronise with Crowd');
     final drafts = <StructureDraft>[];
-    for (final c in selected.where((c) => !c.isDepartment)) {
+    for (final c in selected.where((c) => c.level == CrowdStructureLevel.division)) {
       drafts.add(StructureDraft(
+        divisionName: c.displayName,
+        divisionDescription: c.group.description,
+        divisionCrowd: c.group.name,
+      ));
+    }
+    for (final c in selected.where((c) => c.level == CrowdStructureLevel.group)) {
+      final division = c.parentDisplayName;
+      if (division == null) continue;
+      drafts.add(StructureDraft(
+        divisionName: division,
+        divisionCrowd: c.parentCrowd,
         groupName: c.displayName,
         groupDescription: c.group.description,
         groupCrowd: c.group.name,
       ));
     }
-    for (final c in selected.where((c) => c.isDepartment)) {
-      final parent = c.parentDisplayName;
-      if (parent == null) continue;
+    for (final c in selected.where((c) => c.level == CrowdStructureLevel.department)) {
+      final group = c.parentDisplayName;
+      if (group == null) continue;
       drafts.add(StructureDraft(
-        groupName: parent,
-        groupCrowd: c.group.parent,
+        divisionName: c.grandParentDisplayName ?? '',
+        divisionCrowd: c.grandParentCrowd,
+        groupName: group,
+        groupCrowd: c.parentCrowd,
         departmentName: c.displayName,
         departmentDescription: c.group.description,
         departmentCrowd: c.group.name,
@@ -465,7 +563,7 @@ class CrowdService {
           at: DateTime.now(),
           by: by.name,
           usersSync: false,
-          summary: '${result.groups.length} groups and ${result.departments.length} departments added',
+          summary: '${result.summary} added',
         ),
         ...history.value,
       ]);

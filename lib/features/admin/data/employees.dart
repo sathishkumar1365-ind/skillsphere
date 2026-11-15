@@ -4,12 +4,12 @@
 // Who can do what (the Spring Boot API must enforce the same rules):
 // * HRD (Super Admin): everything, for every employee.
 // * Team Lead (Admin): view and update profiles of their OWN department,
-//   except group, department and status; not their own profile. Skill level
+//   except division, group, department and status; not their own profile. Skill level
 //   changes they make become level-up requests for HR approval.
 // * Employee (End User): view their own profile.
 //
 // Spring Boot API later:
-//   GET  /api/employees?groupId=&departmentId=&status=&q=   (SUPER_ADMIN; ADMIN gets own dept)
+//   GET  /api/employees?divisionId=&groupId=&departmentId=&status=&q=   (SUPER_ADMIN; ADMIN gets own dept)
 //   GET  /api/employees/{id}                                (rules above)
 //   POST /api/employees (SUPER_ADMIN)    POST /api/employees/bulk (SUPER_ADMIN)
 //   PUT  /api/employees/{id}             (rules above; logs profile changes)
@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/auth/app_user.dart';
 import '../../additional_competency/data/additional_competency_repository.dart';
 import '../../competency/data/competency_repository.dart';
+import '../../competency/data/level_progress.dart';
 import 'admin_base.dart';
 import 'admin_sample_data.dart';
 import 'job_roles.dart';
@@ -302,6 +303,7 @@ class EmployeeRules {
 // --------------------------------------------------------------- changes
 
 enum ChangeField {
+  division('Division'),
   group('Group'),
   department('Department'),
   manager('Reporting manager'),
@@ -312,8 +314,9 @@ enum ChangeField {
   const ChangeField(this.label);
   final String label;
 
-  /// Group and department moves – what re-orgs are tracked by.
-  bool get isPlacement => this == ChangeField.group || this == ChangeField.department;
+  /// Division, group and department moves – what re-orgs are tracked by.
+  bool get isPlacement =>
+      this == ChangeField.division || this == ChangeField.group || this == ChangeField.department;
 }
 
 enum ChangeReason {
@@ -435,6 +438,12 @@ class EmployeeRepository {
 
   String groupNameOf(EmployeeProfile e) => _structure.groupNameOfDepartment(e.departmentId);
 
+  String divisionNameOf(EmployeeProfile e) => _structure.divisionNameOfDepartment(e.departmentId);
+
+  /// "Research & Development › Software Development › Engineering"
+  String placementOf(EmployeeProfile e) =>
+      '${divisionNameOf(e)} › ${groupNameOf(e)} › ${departmentNameOf(e)}';
+
   /// "Priya Raman", or the outside manager's name, or "—".
   String managerLabel(EmployeeProfile e) {
     final id = e.managerId;
@@ -486,7 +495,7 @@ class EmployeeRepository {
     return user.role.canEditTeamProfiles && e.id != user.id && departmentNameOf(e) == user.department;
   }
 
-  /// Group, department and status: HRD only.
+  /// Division, group, department and status: HRD only.
   bool canChangePlacement(AppUser user) => user.role.canManageOrganization;
 
   /// Team Leads ask HR to raise levels; HRD sets them directly.
@@ -527,7 +536,7 @@ class EmployeeRepository {
     if (name.length > EmployeeRules.nameMax) return 'Keep the name under ${EmployeeRules.nameMax} characters.';
     final emailIssue = emailProblem(d.email, exceptId: exceptId);
     if (emailIssue != null) return emailIssue;
-    if (_structure.departmentById(d.departmentId) == null) return 'Choose the group and department.';
+    if (_structure.departmentById(d.departmentId) == null) return 'Choose the division, group and department.';
     if (d.designation.trim().isEmpty) return 'Enter the designation.';
     if (d.designation.trim().length > EmployeeRules.designationMax) {
       return 'Keep the designation under ${EmployeeRules.designationMax} characters.';
@@ -638,6 +647,7 @@ class EmployeeRepository {
           by: by,
           employeeId: d.id.trim(),
           levels: {for (final a in d.acquired) a.competencyId: a.level},
+          source: LevelChangeSource.onboarding,
         );
       }
       if (d.additional.isNotEmpty) {
@@ -650,8 +660,8 @@ class EmployeeRepository {
 
   // ------------------------------------------------------------- update
 
-  /// Saves an updated profile and logs what changed in group, department,
-  /// manager, designation, role and status.
+  /// Saves an updated profile and logs what changed in division, group,
+  /// department, manager, designation, role and status.
   Future<EmployeeProfile> update({
     required AppUser by,
     required String employeeId,
@@ -667,7 +677,7 @@ class EmployeeRepository {
     }
     if (!canChangePlacement(by) &&
         (draft.departmentId != current.departmentId || draft.status != current.status)) {
-      throw const AdminException('Only the HRD team can change group, department or status.');
+      throw const AdminException('Only the HRD team can change division, group, department or status.');
     }
     final problem = problemWith(draft, isNew: false, exceptId: employeeId);
     if (problem != null) throw AdminException(problem);
@@ -764,18 +774,21 @@ class EmployeeRepository {
     return moved;
   }
 
-  /// Called when a whole department moves to another group: logs a group
-  /// change for everyone in it. Returns the number of employees.
-  int logDepartmentGroupMove({
+  /// Called when a whole department moves to another group, or a group to
+  /// another division: logs a [field] change for everyone in
+  /// [departmentIds]. Returns the number of employees.
+  int logStructureMove({
     required AppUser by,
-    required OrgDepartment department,
-    required String fromGroup,
-    required String toGroup,
+    required Set<String> departmentIds,
+    required ChangeField field,
+    required String from,
+    required String to,
     required ChangeReason reason,
     required DateTime effectiveDate,
+    required String batchLabel,
     String note = '',
   }) {
-    final people = inDepartment(department.id, activeOnly: false);
+    final people = employees.value.where((e) => departmentIds.contains(e.departmentId)).toList();
     var number = highestNumber(changes.value.map((c) => c.id));
     final now = DateTime.now();
     final logged = [
@@ -783,15 +796,15 @@ class EmployeeRepository {
         ProfileChange(
           id: 'CHG-${(++number).toString().padLeft(4, '0')}',
           employeeId: e.id,
-          field: ChangeField.group,
-          from: fromGroup,
-          to: toGroup,
+          field: field,
+          from: from,
+          to: to,
           reason: reason,
-          note: note,
-          effectiveDate: effectiveDate,
+          note: note.trim(),
+          effectiveDate: dateOnly(effectiveDate),
           changedBy: by.name,
           changedAt: now,
-          batchLabel: '${department.name} moved to $toGroup',
+          batchLabel: batchLabel,
         ),
     ];
     if (logged.isNotEmpty) {
@@ -872,6 +885,8 @@ class EmployeeRepository {
       ));
     }
 
+    log(ChangeField.division, _structure.divisionNameOfDepartment(before.departmentId),
+        _structure.divisionNameOfDepartment(after.departmentId));
     log(ChangeField.group, _structure.groupNameOfDepartment(before.departmentId),
         _structure.groupNameOfDepartment(after.departmentId));
     log(ChangeField.department, _structure.departmentName(before.departmentId),

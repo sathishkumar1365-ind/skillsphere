@@ -1,5 +1,6 @@
 // Bulk import (Excel .xlsx or CSV) for the HRD console: employees,
-// projects, roles, and groups & departments.
+// projects, roles, and the organisation structure (divisions, groups &
+// departments).
 //
 // Same approach as the competency import: the header row is found by its
 // text (any order, extra columns ignored), every row is checked with the
@@ -210,6 +211,9 @@ class EmployeeImporter {
     ImportField('email', 'Work Email', aliases: ['Email', 'Email ID', 'Mail'], required: true),
     ImportField('gender', 'Gender', required: true),
     ImportField('status', 'Status', aliases: ['Employment Status']),
+    // Optional: the department already decides the group and division; when
+    // given, it must match.
+    ImportField('division', 'Division', aliases: ['Division Name']),
     ImportField('group', 'Group', aliases: ['Business Group', 'Group Name'], required: true),
     ImportField('department', 'Department', aliases: ['Dept', 'Department Name'], required: true),
     ImportField('manager', 'Reporting Manager', aliases: ['Manager', 'Reporting Manager ID', 'Reports To']),
@@ -309,7 +313,7 @@ class EmployeeImporter {
       if (groupText.isEmpty) {
         problems.add('Group is empty.');
       } else if (group == null) {
-        problems.add('Group "$groupText" doesn\'t exist. Add it under Groups & Departments first.');
+        problems.add('Group "$groupText" doesn\'t exist. Add it under Org Structure first.');
       }
       if (departmentText.isEmpty) {
         problems.add('Department is empty.');
@@ -318,6 +322,16 @@ class EmployeeImporter {
       } else if (group != null && department.groupId != group.id) {
         problems.add('Department ${department.name} is in '
             '${structure.groupNameOfDepartment(department.id)}, not ${group.name}.');
+      }
+      final divisionText = c('division');
+      if (divisionText.isNotEmpty) {
+        final division = structure.divisionByName(divisionText);
+        final actual = department == null ? null : structure.divisionOfDepartment(department.id);
+        if (division == null) {
+          problems.add('Division "$divisionText" doesn\'t exist.');
+        } else if (actual != null && actual.id != division.id) {
+          problems.add('Department ${department!.name} is in the ${actual.name} division, not ${division.name}.');
+        }
       }
 
       final managerText = c('manager');
@@ -723,17 +737,23 @@ class RoleImporter {
   }
 }
 
-// ================================================= groups & departments
+// ============================================ divisions, groups & departments
 
 class StructureImporter {
   StructureImporter._();
 
   static const int maxRows = 500;
-  static const String sheetName = 'Departments';
+  static const String sheetName = 'Structure';
   static const String templateAsset = 'assets/templates/group_department_import_template.xlsx';
-  static const String templateFileName = 'SkillSphere_group_department_import_template.xlsx';
+  static const String templateFileName = 'SkillSphere_org_structure_import_template.xlsx';
 
   static const fields = [
+    // Division is optional in the header so older files (Group + Department
+    // only) still work; a NEW group needs it on its row.
+    ImportField('division', 'Division', aliases: ['Division Name']),
+    ImportField('divisionCode', 'Division Code'),
+    ImportField('divisionHead', 'Division Head', aliases: ['Division Head ID']),
+    ImportField('divisionDescription', 'Division Description'),
     ImportField('group', 'Group', aliases: ['Group Name', 'Business Group'], required: true),
     ImportField('groupCode', 'Group Code'),
     ImportField('groupDescription', 'Group Description'),
@@ -753,6 +773,7 @@ class StructureImporter {
     final structure = OrgStructureRepository.instance;
     final employees = EmployeeRepository.instance;
     final firstDepartment = <String, int>{};
+    final newDivisions = <String>{};
     final newGroups = <String>{};
     final rows = <ImportRow<StructureDraft>>[];
 
@@ -760,28 +781,58 @@ class StructureImporter {
       String c(String key) => table.cell(row, key);
       final problems = <String>[];
       String? duplicate;
+      final divisionName = cleanText(c('division'));
+      final divisionCode = c('divisionCode').toUpperCase();
       final groupName = cleanText(c('group'));
       final groupCode = c('groupCode').toUpperCase();
       final departmentName = cleanText(c('department'));
       final departmentCode = c('departmentCode').toUpperCase();
 
+      final division = divisionName.isEmpty ? null : structure.divisionByName(divisionName);
       final group = groupName.isEmpty ? null : structure.groupByName(groupName);
-      if (groupName.isEmpty) {
-        problems.add('Group is empty.');
-      } else if (groupName.length > StructureRules.nameMax) {
+
+      if (divisionName.isEmpty && groupName.isEmpty && departmentName.isEmpty) {
+        problems.add('Division, Group and Department are empty.');
+      }
+      if (divisionName.length > StructureRules.nameMax) {
+        problems.add('Division is longer than ${StructureRules.nameMax} characters.');
+      }
+      if (groupName.length > StructureRules.nameMax) {
         problems.add('Group is longer than ${StructureRules.nameMax} characters.');
       }
-      if (groupCode.isNotEmpty && !StructureRules.isValidCode(groupCode)) {
-        problems.add('Group Code "$groupCode" can only have letters, digits, - or _ (up to 12).');
+      if (departmentName.isNotEmpty && groupName.isEmpty) {
+        problems.add('Group is empty: a department needs its group.');
       }
-      if (departmentCode.isNotEmpty && !StructureRules.isValidCode(departmentCode)) {
-        problems.add('Department Code "$departmentCode" can only have letters, digits, - or _ (up to 12).');
+      if (groupName.isNotEmpty && group == null && divisionName.isEmpty) {
+        problems.add('Division is empty: the new group $groupName needs its division.');
+      }
+      if (group != null && divisionName.isNotEmpty && division?.id != group.divisionId) {
+        final actual = structure.divisionOfGroup(group.id)?.name ?? '—';
+        problems.add('Group ${group.name} is in $actual, not $divisionName. '
+            'Move it under Org Structure instead.');
+      }
+      for (final (label, code) in [
+        ('Division Code', divisionCode),
+        ('Group Code', groupCode),
+        ('Department Code', departmentCode),
+      ]) {
+        if (code.isNotEmpty && !StructureRules.isValidCode(code)) {
+          problems.add('$label "$code" can only have letters, digits, - or _ (up to 12).');
+        }
       }
 
-      if (departmentName.isEmpty) {
+      if (groupName.isEmpty) {
+        // Division only.
+        if (division != null) {
+          duplicate = 'Division ${division.name} already exists.';
+        } else if (divisionName.isNotEmpty && !newDivisions.add(nameKey(divisionName))) {
+          duplicate = 'Division $divisionName is already added by an earlier row.';
+        }
+      } else if (departmentName.isEmpty) {
+        // Division (optional) + group.
         if (group != null) {
           duplicate = 'Group ${group.name} already exists.';
-        } else if (groupName.isNotEmpty && !newGroups.add(nameKey(groupName))) {
+        } else if (!newGroups.add(nameKey(groupName))) {
           duplicate = 'Group $groupName is already added by an earlier row.';
         }
       } else if (departmentName.length > StructureRules.nameMax) {
@@ -793,7 +844,7 @@ class StructureImporter {
           final inGroup = structure.groupNameOfDepartment(existing.id);
           duplicate = group != null && existing.groupId == group.id
               ? 'Already exists: $inGroup › ${existing.name}.'
-              : '${existing.name} already exists in $inGroup. Move it under Groups & Departments.';
+              : '${existing.name} already exists in $inGroup. Move it under Org Structure.';
         } else if (earlier != null) {
           duplicate = 'Same Department as row $earlier.';
         } else if (departmentCode.isNotEmpty && structure.departmentByName(departmentCode) != null) {
@@ -802,31 +853,52 @@ class StructureImporter {
         firstDepartment.putIfAbsent(nameKey(departmentName), () => row.number);
         if (group == null && groupName.isNotEmpty) newGroups.add(nameKey(groupName));
       }
+      if (division == null && divisionName.isNotEmpty && groupName.isNotEmpty) {
+        newDivisions.add(nameKey(divisionName));
+      }
 
       final headText = c('head');
       final head = headText.isEmpty ? null : employees.find(headText);
       if (headText.isNotEmpty && head == null) {
         problems.add('Department Head "$headText" is not an employee ID, email or name.');
       }
+      final divisionHeadText = c('divisionHead');
+      final divisionHead = divisionHeadText.isEmpty ? null : employees.find(divisionHeadText);
+      if (divisionHeadText.isNotEmpty && divisionHead == null) {
+        problems.add('Division Head "$divisionHeadText" is not an employee ID, email or name.');
+      }
+      final divisionDescription = c('divisionDescription');
       final groupDescription = c('groupDescription');
       final departmentDescription = c('departmentDescription');
-      if (groupDescription.length > StructureRules.descriptionMax ||
+      if (divisionDescription.length > StructureRules.descriptionMax ||
+          groupDescription.length > StructureRules.descriptionMax ||
           departmentDescription.length > StructureRules.descriptionMax) {
         problems.add('Descriptions can be up to ${StructureRules.descriptionMax} characters.');
       }
 
+      final path = [
+        if (divisionName.isNotEmpty) division?.name ?? divisionName,
+        if (groupName.isNotEmpty) group?.name ?? groupName,
+        if (departmentName.isNotEmpty) departmentName,
+      ].join(' › ');
       rows.add(ImportRow<StructureDraft>(
         rowNumber: row.number,
-        title: departmentName.isEmpty ? groupName.ifEmpty('(no group)') : '$groupName › $departmentName',
+        title: path.ifEmpty('(empty row)'),
         subtitle: [
-          group == null && groupName.isNotEmpty ? 'New group' : 'Existing group',
+          if (divisionName.isNotEmpty) division == null ? 'New division' : 'Existing division',
+          if (groupName.isNotEmpty) group == null ? 'New group' : 'Existing group',
           if (departmentName.isNotEmpty) 'New department',
+          if (divisionHead != null) 'Division head: ${divisionHead.name}',
           if (head != null) 'Head: ${head.name}',
         ].join(' · '),
         problems: problems,
         duplicateNote: duplicate,
         value: problems.isEmpty
             ? StructureDraft(
+                divisionName: division?.name ?? divisionName,
+                divisionCode: divisionCode,
+                divisionDescription: divisionDescription,
+                divisionHeadId: divisionHead?.id,
                 groupName: group?.name ?? groupName,
                 groupCode: groupCode,
                 groupDescription: groupDescription,

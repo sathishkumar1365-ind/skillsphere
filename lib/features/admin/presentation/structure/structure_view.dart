@@ -17,9 +17,9 @@ import '../widgets/bulk_import_panel.dart';
 
 enum _Mode { structure, add, bulk, crowd }
 
-/// Console › Groups & Departments: the organisation structure (groups and
-/// the departments inside them), add new ones, import from Excel/CSV or
-/// synchronise from Crowd, and move a department to another group.
+/// Console › Org Structure: Division → Group → Department. Add new ones,
+/// import from Excel/CSV or synchronise from Crowd, move a group to another
+/// division or a department to another group.
 class StructureView extends StatefulWidget {
   const StructureView({super.key, required this.user, required this.onOpenEmployee});
 
@@ -34,21 +34,24 @@ class _StructureViewState extends State<StructureView> {
   _Mode _mode = _Mode.structure;
 
   late final BulkImportConfig<StructureDraft> _importConfig = BulkImportConfig<StructureDraft>(
-    title: 'Bulk import groups & departments',
-    subtitle: 'One row per department (with its group). A group that doesn\'t exist yet is created.',
+    title: 'Bulk import the org structure',
+    subtitle: 'One row per department with its group and division. A division or group that '
+        'doesn\'t exist yet is created.',
     templateAsset: StructureImporter.templateAsset,
     templateFileName: StructureImporter.templateFileName,
-    templateDescription: 'Group, codes, Department, Department Head and descriptions, with '
+    templateDescription: 'Division, Group and Department with codes, heads and descriptions, '
         'automotive examples and an Instructions sheet.',
-    columnsHelp: 'Group · Group Code · Group Description · Department · Department Code · '
-        'Department Head (employee ID) · Department Description. Leave Department empty to add only a group.',
+    columnsHelp: 'Division · Division Code · Division Head · Division Description · Group · Group Code · '
+        'Group Description · Department · Department Code · Department Head (employee ID) · Department '
+        'Description. Leave Department empty to add only a group, Group and Department empty to add only '
+        'a division.',
     singular: 'row',
     plural: 'rows',
     parse: (bytes, fileName) => StructureImporter.parse(bytes, fileName: fileName),
     commit: (drafts) async {
       final result = await OrgStructureRepository.instance
           .addAll(by: widget.user, drafts: drafts, source: RecordSource.bulkImport);
-      return result.groups.length + result.departments.length;
+      return result.total;
     },
   );
 
@@ -58,10 +61,10 @@ class _StructureViewState extends State<StructureView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SectionHeader(
-          title: 'GROUPS & DEPARTMENTS',
-          subtitle: 'Business groups and the departments inside them. Every employee belongs to one '
-              'department; moving a department to another group moves its people too (logged in '
-              'Profile Changes).',
+          title: 'ORG STRUCTURE',
+          subtitle: 'Divisions, the business groups inside them and their departments. Every employee '
+              'belongs to one department, and so to its group and division. Moving a group or a '
+              'department moves its people too (logged in Profile Changes).',
         ),
         const SizedBox(height: 24),
         ModeSwitch<_Mode>(
@@ -94,7 +97,7 @@ class _StructureViewState extends State<StructureView> {
             config: _importConfig,
             onImported: (n) {
               setState(() => _mode = _Mode.structure);
-              showAdminMessage(context, '$n groups/departments added. They are marked NEW.');
+              showAdminMessage(context, '$n divisions/groups/departments added. They are marked NEW.');
             },
           ),
         ),
@@ -134,45 +137,277 @@ class _StructureList extends StatelessWidget {
     final employees = EmployeeRepository.instance;
     return ListenableBuilder(
       listenable: Listenable.merge([
-        structure.groups,
-        structure.departments,
+        structure.listenable,
         employees.employees,
         ProjectRepository.instance.projects,
       ]),
       builder: (context, _) {
-        final groups = [...structure.groups.value]..sort((a, b) {
-            final aNew = structure.isNew(a.id) ? 0 : 1;
-            final bNew = structure.isNew(b.id) ? 0 : 1;
-            return aNew != bNew ? aNew.compareTo(bNew) : a.name.compareTo(b.name);
-          });
+        int newFirst(String aId, String bId, String aName, String bName) {
+          final aNew = structure.isNew(aId) ? 0 : 1;
+          final bNew = structure.isNew(bId) ? 0 : 1;
+          return aNew != bNew ? aNew.compareTo(bNew) : aName.compareTo(bName);
+        }
+
+        final divisions = [...structure.divisions.value]..sort((a, b) => newFirst(a.id, b.id, a.name, b.name));
+        final knownDivisionIds = {for (final d in divisions) d.id};
+        final orphanGroups = structure.groups.value.where((g) => !knownDivisionIds.contains(g.divisionId)).toList();
         final width = MediaQuery.sizeOf(context).width;
-        final departmentCount = structure.departments.value.length;
+        var index = 0;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             EqualHeightGrid(
-              columns: width >= 900 ? 3 : 1,
+              columns: width >= 900 ? 4 : 2,
               spacing: 14,
               runSpacing: 14,
               children: [
-                KpiCard(value: groups.length, label: 'Groups'),
-                KpiCard(value: departmentCount, label: 'Departments'),
+                KpiCard(value: divisions.length, label: 'Divisions'),
+                KpiCard(value: structure.groups.value.length, label: 'Groups'),
+                KpiCard(value: structure.departments.value.length, label: 'Departments'),
                 KpiCard(value: employees.active.length, label: 'Active employees', dark: true),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 22),
+            for (final division in divisions) ...[
+              TurnIn(
+                key: ValueKey<String>('div-${division.id}'),
+                delay: Duration(milliseconds: (index < 4 ? index++ : 4) * 80),
+                child: _DivisionHeader(division: division, user: user, onOpenEmployee: onOpenEmployee),
+              ),
+              const SizedBox(height: 14),
+              _DivisionGroups(
+                groups: [...structure.groupsIn(division.id)]..sort((a, b) => newFirst(a.id, b.id, a.name, b.name)),
+                user: user,
+                onOpenEmployee: onOpenEmployee,
+                emptyText: 'No groups in ${division.name} yet. Add one under Add new.',
+              ),
+              const SizedBox(height: 26),
+            ],
+            if (orphanGroups.isNotEmpty) ...[
+              const InfoNote(
+                tone: NoteTone.warning,
+                text: 'These groups have no division. Move each one to a division with its ⋮ menu.',
+              ),
+              const SizedBox(height: 14),
+              _DivisionGroups(groups: orphanGroups, user: user, onOpenEmployee: onOpenEmployee, emptyText: ''),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The groups of one division, set in from the left under its header with
+/// a rail that ties them to the division.
+class _DivisionGroups extends StatelessWidget {
+  const _DivisionGroups({
+    required this.groups,
+    required this.user,
+    required this.onOpenEmployee,
+    required this.emptyText,
+  });
+
+  final List<OrgGroup> groups;
+  final AppUser user;
+  final ValueChanged<String> onOpenEmployee;
+  final String emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    final indent = MediaQuery.sizeOf(context).width >= 700 ? 26.0 : 10.0;
+    return Container(
+      margin: EdgeInsets.only(left: indent),
+      padding: EdgeInsets.only(left: indent),
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: HomeColors.chipBorder, width: 2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (groups.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(emptyText, style: HomeText.body(13.5, color: HomeColors.muted)),
+            )
+          else
             for (var i = 0; i < groups.length; i++)
               Padding(
-                padding: const EdgeInsets.only(bottom: 18),
+                padding: EdgeInsets.only(bottom: i == groups.length - 1 ? 0 : 16),
                 child: TurnIn(
                   key: ValueKey<String>('grp-${groups[i].id}'),
                   delay: Duration(milliseconds: (i < 6 ? i : 6) * 70),
                   child: _GroupCard(group: groups[i], user: user, onOpenEmployee: onOpenEmployee),
                 ),
               ),
-          ],
-        );
-      },
+        ],
+      ),
+    );
+  }
+}
+
+class _DivisionHeader extends StatelessWidget {
+  const _DivisionHeader({required this.division, required this.user, required this.onOpenEmployee});
+
+  final OrgDivision division;
+  final AppUser user;
+  final ValueChanged<String> onOpenEmployee;
+
+  Future<void> _setHead(BuildContext context) async {
+    final employees = EmployeeRepository.instance;
+    final candidates = [...employees.active]..sort((a, b) => a.name.compareTo(b.name));
+    final picked = await showSwingPanel<String>(
+      context: context,
+      title: 'Division head',
+      subtitle: division.name,
+      width: 560,
+      builder: (panelContext) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Search the person who leads ${division.name}.', style: HomeText.body(14, height: 1.5)),
+          const SizedBox(height: 12),
+          EmployeeSearchBox(
+            options: candidates,
+            onPicked: (e) => Navigator.of(panelContext).pop(e.id),
+            detailOf: (e) => '${e.id} · ${employees.departmentNameOf(e)}',
+          ),
+        ],
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    try {
+      OrgStructureRepository.instance.setDivisionHead(by: user, divisionId: division.id, employeeId: picked);
+      showAdminMessage(context, '${employees.nameOf(picked)} now heads ${division.name}.');
+    } on AdminException catch (e) {
+      showAdminMessage(context, e.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final structure = OrgStructureRepository.instance;
+    final employees = EmployeeRepository.instance;
+    final groups = structure.groupsIn(division.id);
+    final departments = structure.departmentsInDivision(division.id);
+    final people = departments.fold<int>(0, (s, d) => s + employees.inDepartment(d.id).length);
+    final head = employees.byId(division.headId);
+    String count(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+    return LiftCard(
+      padding: const EdgeInsets.fromLTRB(22, 20, 10, 20),
+      liftBy: 5,
+      tiltDegrees: 2.5,
+      color: HomeColors.ink,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              borderRadius: BorderRadius.all(Radius.circular(18)),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF6FA4F5), Color(0xFF1F5FD1)],
+              ),
+              boxShadow: [
+                BoxShadow(color: Color.fromRGBO(0, 0, 0, 0.35), blurRadius: 16, spreadRadius: -6, offset: Offset(0, 8)),
+              ],
+            ),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(division.code, style: HomeText.display(20, color: Colors.white, height: 1)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('DIVISION',
+                    style: HomeText.body(11, weight: FontWeight.w800, color: HomeColors.peach, letterSpacing: 1.4)),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(division.name.toUpperCase(),
+                          overflow: TextOverflow.ellipsis,
+                          style: HomeText.display(30, color: Colors.white, height: 1.05)),
+                    ),
+                    if (structure.isNew(division.id)) ...[const SizedBox(width: 8), const _InkNewLabel()],
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${count(groups.length, 'group', 'groups')} · '
+                  '${count(departments.length, 'department', 'departments')} · '
+                  '${count(people, 'person', 'people')}'
+                  '${division.crowdGroup == null ? '' : ' · Crowd: ${division.crowdGroup}'}',
+                  style: HomeText.body(13, color: HomeColors.onInkMuted),
+                ),
+                if (division.description.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(division.description, style: HomeText.body(14, color: HomeColors.onInk, height: 1.5)),
+                ],
+                const SizedBox(height: 10),
+                if (head == null)
+                  Text('No division head set', style: HomeText.body(13, weight: FontWeight.w600, color: HomeColors.onInkMuted))
+                else
+                  InkWell(
+                    onTap: () => onOpenEmployee(head.id),
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          InitialsAvatar(initials: head.initials, size: 26),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text('Head · ${head.name}',
+                                overflow: TextOverflow.ellipsis,
+                                style: HomeText.body(13, weight: FontWeight.w700, color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          PopupMenuButton<int>(
+            tooltip: 'Division actions',
+            color: Colors.white,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
+            onSelected: (_) => _setHead(context),
+            itemBuilder: (context) => const [
+              PopupMenuItem<int>(value: 0, child: Text('Change division head…')),
+            ],
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "NEW" on the dark division card.
+class _InkNewLabel extends StatelessWidget {
+  const _InkNewLabel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.all(Radius.circular(6)),
+      ),
+      child: Text('NEW', style: HomeText.body(10.5, weight: FontWeight.w800, color: HomeColors.ink, letterSpacing: 0.8)),
     );
   }
 }
@@ -184,6 +419,23 @@ class _GroupCard extends StatelessWidget {
   final AppUser user;
   final ValueChanged<String> onOpenEmployee;
 
+  Future<void> _move(BuildContext context) async {
+    final moved = await showSwingPanel<int>(
+      context: context,
+      title: 'Move group',
+      subtitle: '${group.name}, its departments and everyone in them move to another division.',
+      width: 640,
+      builder: (panelContext) => _MoveGroupForm(
+        user: user,
+        group: group,
+        onDone: (n) => Navigator.of(panelContext).pop(n),
+      ),
+    );
+    if (moved != null && context.mounted) {
+      showAdminMessage(context, '${group.name} moved. $moved division ${moved == 1 ? 'change' : 'changes'} logged.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final structure = OrgStructureRepository.instance;
@@ -191,7 +443,7 @@ class _GroupCard extends StatelessWidget {
     final departments = structure.departmentsIn(group.id);
     final people = departments.fold<int>(0, (s, d) => s + employees.inDepartment(d.id).length);
     return LiftCard(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.fromLTRB(22, 22, 10, 22),
       liftBy: 5,
       tiltDegrees: 3,
       child: Column(
@@ -239,7 +491,7 @@ class _GroupCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${departments.length} ${departments.length == 1 ? 'department' : 'departments'} · '
+                      'Group · ${departments.length} ${departments.length == 1 ? 'department' : 'departments'} · '
                       '$people ${people == 1 ? 'person' : 'people'}'
                       '${group.crowdGroup == null ? '' : ' · Crowd: ${group.crowdGroup}'}',
                       style: HomeText.body(13, color: HomeColors.muted),
@@ -247,11 +499,24 @@ class _GroupCard extends StatelessWidget {
                   ],
                 ),
               ),
+              PopupMenuButton<int>(
+                tooltip: 'Group actions',
+                color: Colors.white,
+                shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(16))),
+                onSelected: (_) => _move(context),
+                itemBuilder: (context) => const [
+                  PopupMenuItem<int>(value: 0, child: Text('Move to another division…')),
+                ],
+                icon: const Icon(Icons.more_vert_rounded),
+              ),
             ],
           ),
           if (group.description.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(group.description, style: HomeText.body(14, height: 1.5)),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Text(group.description, style: HomeText.body(14, height: 1.5)),
+            ),
           ],
           const SizedBox(height: 14),
           if (departments.isEmpty)
@@ -259,11 +524,140 @@ class _GroupCard extends StatelessWidget {
           else
             for (final d in departments)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 8, right: 12),
                 child: _DepartmentRow(department: d, user: user, onOpenEmployee: onOpenEmployee),
               ),
         ],
       ),
+    );
+  }
+}
+
+class _MoveGroupForm extends StatefulWidget {
+  const _MoveGroupForm({required this.user, required this.group, required this.onDone});
+
+  final AppUser user;
+  final OrgGroup group;
+  final ValueChanged<int> onDone;
+
+  @override
+  State<_MoveGroupForm> createState() => _MoveGroupFormState();
+}
+
+class _MoveGroupFormState extends State<_MoveGroupForm> {
+  final _note = TextEditingController();
+  String? _divisionId;
+  ChangeReason _reason = ChangeReason.reorg;
+  DateTime _effective = dateOnly(DateTime.now());
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _move() async {
+    final target = _divisionId;
+    if (target == null) {
+      setState(() => _error = 'Choose the new division.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final count = await OrgStructureRepository.instance.moveGroup(
+        by: widget.user,
+        groupId: widget.group.id,
+        toDivisionId: target,
+        reason: _reason,
+        effectiveDate: _effective,
+        note: _note.text,
+      );
+      if (mounted) widget.onDone(count);
+    } on AdminException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final structure = OrgStructureRepository.instance;
+    final current = structure.divisionOfGroup(widget.group.id);
+    final divisions = structure.divisions.value.where((d) => d.id != current?.id).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final departmentIds = {for (final d in structure.departmentsIn(widget.group.id)) d.id};
+    final people = EmployeeRepository.instance.employees.value.where((e) => departmentIds.contains(e.departmentId)).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InfoNote(
+          text: 'Now in ${current?.name ?? '—'}. ${departmentIds.length} '
+              '${departmentIds.length == 1 ? 'department moves' : 'departments move'} with it, and '
+              '$people ${people == 1 ? 'person gets' : 'people get'} a division change in their history.',
+        ),
+        const SizedBox(height: 16),
+        LabeledField(
+          label: 'New division',
+          required: true,
+          child: divisions.isEmpty
+              ? const InfoNote(tone: NoteTone.warning, text: 'There is no other division. Add one under Add new.')
+              : AdminDropdown<String>(
+                  value: _divisionId,
+                  items: [for (final d in divisions) d.id],
+                  labelOf: (id) => structure.divisionById(id)?.name ?? id,
+                  hint: 'Choose a division',
+                  onChanged: (id) => setState(() => _divisionId = id),
+                ),
+        ),
+        const SizedBox(height: 16),
+        const FieldLabel('Reason'),
+        ChoicePills<ChangeReason>(
+          options: ChangeReason.selectable,
+          selected: _reason,
+          labelOf: (r) => r.label,
+          onSelected: (r) => setState(() => _reason = r),
+        ),
+        const SizedBox(height: 16),
+        LabeledField(
+          label: 'Effective from',
+          required: true,
+          child: DateField(value: _effective, onChanged: (d) => setState(() => _effective = d ?? _effective)),
+        ),
+        const SizedBox(height: 16),
+        LabeledField(
+          label: 'Note',
+          optional: true,
+          child: TextField(
+            controller: _note,
+            style: adminInputStyle,
+            maxLength: 160,
+            decoration: adminDecoration(hint: 'e.g. 2027 re-org: platform groups join Digital & IT'),
+          ),
+        ),
+        if (_error != null) ...[
+          const SizedBox(height: 8),
+          InfoNote(tone: NoteTone.error, text: _error!),
+        ],
+        const SizedBox(height: 16),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            PillButton(label: _saving ? 'Moving…' : 'Move group', onPressed: _saving ? null : _move),
+            PillButton(
+              label: 'Cancel',
+              variant: PillVariant.outline,
+              onPressed: _saving ? null : () => Navigator.of(context).maybePop(),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -288,7 +682,7 @@ class _DepartmentRow extends StatelessWidget {
       ),
     );
     if (moved != null && context.mounted) {
-      showAdminMessage(context, '${department.name} moved. $moved group ${moved == 1 ? 'change' : 'changes'} logged.');
+      showAdminMessage(context, '${department.name} moved. $moved ${moved == 1 ? 'person' : 'people'} updated in Profile Changes.');
     }
   }
 
@@ -452,11 +846,17 @@ class _MoveDepartmentFormState extends State<_MoveDepartmentForm> {
     final groups = structure.groups.value.where((g) => g.id != current?.id).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     final people = EmployeeRepository.instance.inDepartment(widget.department.id, activeOnly: false).length;
+    final currentDivision = structure.divisionById(current?.divisionId);
+    final targetDivision = structure.divisionOfGroup(_groupId);
+    final crossesDivision = targetDivision != null && targetDivision.id != currentDivision?.id;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        InfoNote(text: 'Now in ${current?.name ?? '—'}. $people ${people == 1 ? 'person' : 'people'} will get a '
-            'group change in their history.'),
+        InfoNote(
+          text: 'Now in ${currentDivision?.name ?? '—'} › ${current?.name ?? '—'}. $people '
+              '${people == 1 ? 'person' : 'people'} will get a group change'
+              '${crossesDivision ? ' and a division change (to ${targetDivision?.name})' : ''} in their history.',
+        ),
         const SizedBox(height: 16),
         LabeledField(
           label: 'New group',
@@ -464,7 +864,7 @@ class _MoveDepartmentFormState extends State<_MoveDepartmentForm> {
           child: AdminDropdown<String>(
             value: _groupId,
             items: [for (final g in groups) g.id],
-            labelOf: (id) => structure.groupById(id)?.name ?? id,
+            labelOf: (id) => '${structure.groupById(id)?.name ?? id} · ${structure.divisionOfGroup(id)?.name ?? '—'}',
             hint: 'Choose a group',
             onChanged: (id) => setState(() => _groupId = id),
           ),
@@ -529,22 +929,32 @@ class _AddForms extends StatefulWidget {
 }
 
 class _AddFormsState extends State<_AddForms> {
+  final _divisionName = TextEditingController();
+  final _divisionCode = TextEditingController();
+  final _divisionDescription = TextEditingController();
   final _groupName = TextEditingController();
   final _groupCode = TextEditingController();
   final _groupDescription = TextEditingController();
   final _departmentName = TextEditingController();
   final _departmentCode = TextEditingController();
   final _departmentDescription = TextEditingController();
+  String? _divisionId;
+  String? _divisionHeadId;
   String? _groupId;
   String? _headId;
+  bool _savingDivision = false;
   bool _savingGroup = false;
   bool _savingDepartment = false;
+  String? _divisionError;
   String? _groupError;
   String? _departmentError;
 
   @override
   void dispose() {
     for (final c in [
+      _divisionName,
+      _divisionCode,
+      _divisionDescription,
       _groupName,
       _groupCode,
       _groupDescription,
@@ -557,7 +967,42 @@ class _AddFormsState extends State<_AddForms> {
     super.dispose();
   }
 
+  Future<void> _addDivision() async {
+    setState(() {
+      _savingDivision = true;
+      _divisionError = null;
+    });
+    try {
+      final d = await OrgStructureRepository.instance.addDivision(
+        by: widget.user,
+        name: _divisionName.text,
+        // Empty = a free code is made from the name.
+        code: _divisionCode.text,
+        headId: _divisionHeadId,
+        description: _divisionDescription.text,
+      );
+      if (!mounted) return;
+      _divisionName.clear();
+      _divisionCode.clear();
+      _divisionDescription.clear();
+      setState(() {
+        _divisionId = d.id;
+        _divisionHeadId = null;
+      });
+      widget.onAdded('Division ${d.name} (${d.code}) added. Add its groups next.');
+    } on AdminException catch (e) {
+      if (mounted) setState(() => _divisionError = e.message);
+    } finally {
+      if (mounted) setState(() => _savingDivision = false);
+    }
+  }
+
   Future<void> _addGroup() async {
+    final divisionId = _divisionId;
+    if (divisionId == null) {
+      setState(() => _groupError = 'Choose the division first.');
+      return;
+    }
     setState(() {
       _savingGroup = true;
       _groupError = null;
@@ -565,6 +1010,7 @@ class _AddFormsState extends State<_AddForms> {
     try {
       final g = await OrgStructureRepository.instance.addGroup(
         by: widget.user,
+        divisionId: divisionId,
         name: _groupName.text,
         // Empty = a free code is made from the name.
         code: _groupCode.text,
@@ -575,7 +1021,8 @@ class _AddFormsState extends State<_AddForms> {
       _groupCode.clear();
       _groupDescription.clear();
       setState(() => _groupId = g.id);
-      widget.onAdded('Group ${g.name} (${g.code}) added. Add its departments next.');
+      widget.onAdded('Group ${g.name} (${g.code}) added to '
+          '${OrgStructureRepository.instance.divisionById(divisionId)?.name}. Add its departments next.');
     } on AdminException catch (e) {
       if (mounted) setState(() => _groupError = e.message);
     } finally {
@@ -618,19 +1065,103 @@ class _AddFormsState extends State<_AddForms> {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([OrgStructureRepository.instance.groups, OrgStructureRepository.instance.departments]),
+      listenable: OrgStructureRepository.instance.listenable,
       builder: (context, _) {
         final structure = OrgStructureRepository.instance;
         final employees = EmployeeRepository.instance;
+        final divisions = [...structure.divisions.value]..sort((a, b) => a.name.compareTo(b.name));
         final groups = [...structure.groups.value]..sort((a, b) => a.name.compareTo(b.name));
         final active = [...employees.active]..sort((a, b) => a.name.compareTo(b.name));
-        final groupPanel = StepPanel(
-          icon: Icons.account_tree_outlined,
-          title: 'New group',
-          subtitle: 'A business group, e.g. Vehicle Software.',
+        final divisionPanel = StepPanel(
+          icon: Icons.domain_rounded,
+          title: 'New division',
+          subtitle: 'Top level, e.g. Electrification.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              LabeledField(
+                label: 'Division name',
+                required: true,
+                child: TextField(
+                  controller: _divisionName,
+                  style: adminInputStyle,
+                  maxLength: StructureRules.nameMax,
+                  textCapitalization: TextCapitalization.words,
+                  onChanged: (_) => setState(() => _divisionError = null),
+                  decoration: adminDecoration(hint: 'e.g. Electrification'),
+                ),
+              ),
+              LabeledField(
+                label: 'Code',
+                optional: true,
+                child: TextField(
+                  controller: _divisionCode,
+                  style: adminInputStyle,
+                  maxLength: StructureRules.codeMax,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: adminDecoration(
+                    hint: _divisionName.text.trim().isEmpty
+                        ? 'Made from the name when empty'
+                        : 'Suggested: ${StructureRules.suggestCode(_divisionName.text)}',
+                  ),
+                ),
+              ),
+              LabeledField(
+                label: 'Division head',
+                optional: true,
+                child: EmployeePickerField(
+                  options: active,
+                  selected: employees.byId(_divisionHeadId),
+                  onChanged: (id) => setState(() => _divisionHeadId = id),
+                ),
+              ),
+              const SizedBox(height: 16),
+              LabeledField(
+                label: 'Description',
+                optional: true,
+                child: TextField(
+                  controller: _divisionDescription,
+                  style: adminInputStyle,
+                  maxLength: StructureRules.descriptionMax,
+                  decoration: adminDecoration(hint: 'What the division covers'),
+                ),
+              ),
+              if (_divisionError != null) ...[
+                InfoNote(tone: NoteTone.error, text: _divisionError!),
+                const SizedBox(height: 12),
+              ],
+              Align(
+                alignment: Alignment.centerLeft,
+                child: PillButton(
+                  label: _savingDivision ? 'Adding…' : 'Add division',
+                  onPressed: _savingDivision ? null : _addDivision,
+                ),
+              ),
+            ],
+          ),
+        );
+        final groupPanel = StepPanel(
+          icon: Icons.account_tree_outlined,
+          title: 'New group',
+          subtitle: 'A business group inside a division, e.g. Vehicle Software.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LabeledField(
+                label: 'Division',
+                required: true,
+                child: AdminDropdown<String>(
+                  value: _divisionId,
+                  items: [for (final d in divisions) d.id],
+                  labelOf: (id) => structure.divisionById(id)?.name ?? id,
+                  hint: 'Choose a division',
+                  onChanged: (id) => setState(() {
+                    _divisionId = id;
+                    _groupError = null;
+                  }),
+                ),
+              ),
+              const SizedBox(height: 16),
               LabeledField(
                 label: 'Group name',
                 required: true,
@@ -692,7 +1223,7 @@ class _AddFormsState extends State<_AddForms> {
                 child: AdminDropdown<String>(
                   value: _groupId,
                   items: [for (final g in groups) g.id],
-                  labelOf: (id) => structure.groupById(id)?.name ?? id,
+                  labelOf: (id) => '${structure.groupById(id)?.name ?? id} · ${structure.divisionOfGroup(id)?.name ?? '—'}',
                   hint: 'Choose a group',
                   onChanged: (id) => setState(() => _groupId = id),
                 ),
@@ -759,19 +1290,27 @@ class _AddFormsState extends State<_AddForms> {
             ],
           ),
         );
+        // Wide: division + group side by side, department below.
         return LayoutBuilder(
-          builder: (context, constraints) => constraints.maxWidth >= 900
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          builder: (context, constraints) => constraints.maxWidth >= 820
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: groupPanel),
-                    const SizedBox(width: 18),
-                    Expanded(child: departmentPanel),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: divisionPanel),
+                        const SizedBox(width: 18),
+                        Expanded(child: groupPanel),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    departmentPanel,
                   ],
                 )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [groupPanel, const SizedBox(height: 18), departmentPanel],
+                  children: [divisionPanel, const SizedBox(height: 18), groupPanel, const SizedBox(height: 18), departmentPanel],
                 ),
         );
       },
@@ -827,9 +1366,7 @@ class _CrowdGroupsPanelState extends State<_CrowdGroupsPanel> {
       final result = await CrowdService.instance.applyGroups(by: widget.user, selected: chosen);
       if (!mounted) return;
       setState(() => _changes = null);
-      widget.onDone(result.isEmpty
-          ? 'Nothing was added.'
-          : '${result.groups.length} groups and ${result.departments.length} departments added from Crowd.');
+      widget.onDone(result.isEmpty ? 'Nothing was added.' : '${result.summary} added from Crowd.');
     } on AdminException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -846,9 +1383,10 @@ class _CrowdGroupsPanelState extends State<_CrowdGroupsPanel> {
         final changes = _changes;
         return StepPanel(
           icon: Icons.sync_rounded,
-          title: 'Synchronise groups & departments',
-          subtitle: 'Crowd groups named with the group prefix (grp-…) become groups; those with the '
-              'department prefix (dept-…) become departments inside the group they are nested in.',
+          title: 'Synchronise the org structure',
+          subtitle: 'Crowd groups named with the division prefix (div-…) become divisions, those with the '
+              'group prefix (grp-…) groups inside the division they are nested in, and those with the '
+              'department prefix (dept-…) departments inside their group.',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -898,23 +1436,31 @@ class _CrowdGroupsPanelState extends State<_CrowdGroupsPanel> {
                                   }
                                 }),
                               ),
-                              Icon(c.isDepartment ? Icons.apartment_rounded : Icons.account_tree_outlined,
-                                  size: 20, color: HomeColors.blueDeep),
+                              Icon(
+                                switch (c.level) {
+                                  CrowdStructureLevel.division => Icons.domain_rounded,
+                                  CrowdStructureLevel.group => Icons.account_tree_outlined,
+                                  CrowdStructureLevel.department => Icons.apartment_rounded,
+                                },
+                                size: 20,
+                                color: HomeColors.blueDeep,
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      c.isDepartment
-                                          ? '${c.parentDisplayName ?? '(no parent group)'} › ${c.displayName}'
-                                          : c.displayName,
+                                      c.hasParent
+                                          ? c.path
+                                          : '(no parent ${c.isDepartment ? 'group' : 'division'}) › ${c.displayName}',
                                       style: HomeText.body(14, weight: FontWeight.w700, color: HomeColors.ink),
                                     ),
                                     Text(
-                                      '${c.isDepartment ? 'New department' : 'New group'} · Crowd group ${c.group.name}'
-                                      ' · ${c.group.members} members',
-                                      style: HomeText.body(12.5, color: HomeColors.muted),
+                                      'New ${c.level.label.toLowerCase()} · Crowd group ${c.group.name}'
+                                      ' · ${c.group.members} members'
+                                      '${c.hasParent ? '' : ' · will be skipped: nest it in Crowd first'}',
+                                      style: HomeText.body(12.5, color: c.hasParent ? HomeColors.muted : HomeColors.orangeText),
                                     ),
                                   ],
                                 ),

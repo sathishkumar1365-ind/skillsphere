@@ -1,0 +1,121 @@
+// Placeholder training plans until the Spring Boot API exists. Competency
+// ids match competency_sample_data.dart, project ids admin_sample_data.dart.
+
+import 'training_plans.dart';
+
+List<TrainingPlan> sampleTrainingPlans() => [
+      // ---- Sathish Kumar (EMP-1002): Docker, Python and Kubernetes gaps
+      TrainingPlan(
+        id: 'PLN-0001',
+        employeeId: 'EMP-1002',
+        competencyId: 'CMP-006', // Docker
+        targetLevel: 2,
+        type: TrainingType.onlineCourse,
+        title: 'Docker Mastery: with Kubernetes + Swarm',
+        provider: 'Udemy',
+        startDate: DateTime(2026, 9, 1),
+        targetDate: DateTime(2026, 10, 31),
+        plannedHours: 40,
+        completedHours: 40,
+        status: PlanStatus.completed,
+        link: 'https://learn.example.com/docker-mastery',
+        notes: 'Done. Containerised the Talent Hub API as practice; Priya raised the level-up.',
+        projectIds: const ['PRJ-002', 'PRJ-003'],
+        createdAt: DateTime(2026, 8, 25),
+        updatedAt: DateTime(2026, 11, 2),
+      ),
+      TrainingPlan(
+        id: 'PLN-0002',
+        employeeId: 'EMP-1002',
+        competencyId: 'CMP-002', // Python
+        currentLevel: 1,
+        targetLevel: 2,
+        type: TrainingType.onlineCourse,
+        title: 'Python for Data Engineering',
+        provider: 'Coursera',
+        startDate: DateTime(2026, 11, 2),
+        targetDate: DateTime(2027, 1, 15),
+        plannedHours: 60,
+        completedHours: 22,
+        status: PlanStatus.inProgress,
+        notes: 'Two evenings a week; pandas and Airflow modules matter most for ANP-27.',
+        projectIds: const ['PRJ-003'],
+        createdAt: DateTime(2026, 10, 28),
+        updatedAt: DateTime(2026, 11, 12),
+      ),
+      TrainingPlan(
+        id: 'PLN-0003',
+        employeeId: 'EMP-1002',
+        competencyId: 'CMP-007', // Kubernetes
+        targetLevel: 1,
+        type: TrainingType.workshop,
+        title: 'Kubernetes for developers',
+        provider: 'DevOps & Cloud team (Arjun Nair)',
+        startDate: DateTime(2027, 1, 18),
+        targetDate: DateTime(2027, 2, 26),
+        plannedHours: 32,
+        notes: 'Internal 4-week workshop, Fridays. Then deploy the payments service to the test cluster.',
+        projectIds: const ['PRJ-002'],
+        createdAt: DateTime(2026, 11, 10),
+        updatedAt: DateTime(2026, 11, 10),
+      ),
+      // ---- Sneha Reddy (EMP-1004): Java L2 → L3 for Talent Hub
+      TrainingPlan(
+        id: 'PLN-0004',
+        employeeId: 'EMP-1004',
+        competencyId: 'CMP-001', // Java
+        currentLevel: 2,
+        targetLevel: 3,
+        type: TrainingType.mentoring,
+        title: 'Java service design – weekly mentoring',
+        provider: 'Priya Raman',
+        startDate: DateTime(2026, 9, 7),
+        targetDate: DateTime(2026, 12, 18),
+        plannedHours: 50,
+        completedHours: 34,
+        status: PlanStatus.inProgress,
+        notes: 'Code reviews of the notification service plus one design topic a week.',
+        projectIds: const ['PRJ-001'],
+        createdAt: DateTime(2026, 9, 1),
+        updatedAt: DateTime(2026, 11, 9),
+      ),
+      // ---- Aditya Sharma (EMP-1007): Dart L2 → L3 for Customer Portal 2.0
+      TrainingPlan(
+        id: 'PLN-0005',
+        employeeId: 'EMP-1007',
+        competencyId: 'CMP-003', // Dart
+        currentLevel: 2,
+        targetLevel: 3,
+        type: TrainingType.onTheJob,
+        title: 'Lead the portal\'s Flutter screens',
+        provider: 'Customer Portal 2.0',
+        startDate: DateTime(2026, 9, 14),
+        targetDate: DateTime(2026, 11, 30),
+        plannedHours: 120,
+        completedHours: 120,
+        status: PlanStatus.completed,
+        projectIds: const ['PRJ-004'],
+        createdAt: DateTime(2026, 9, 10),
+        updatedAt: DateTime(2026, 11, 13),
+      ),
+      // ---- Akash Jain (EMP-1031): UX Research L1 → L2
+      TrainingPlan(
+        id: 'PLN-0006',
+        employeeId: 'EMP-1031',
+        competencyId: 'CMP-012', // UX Research
+        currentLevel: 1,
+        targetLevel: 2,
+        type: TrainingType.certification,
+        title: 'NN/g UX Certification – research track',
+        provider: 'Nielsen Norman Group',
+        startDate: DateTime(2026, 10, 5),
+        targetDate: DateTime(2027, 3, 31),
+        plannedHours: 80,
+        completedHours: 12,
+        status: PlanStatus.onHold,
+        notes: 'Paused until the portal release in December.',
+        projectIds: const ['PRJ-004'],
+        createdAt: DateTime(2026, 10, 1),
+        updatedAt: DateTime(2026, 11, 3),
+      ),
+    ];

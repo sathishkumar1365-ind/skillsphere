@@ -8,6 +8,7 @@
 //   011 Microservices · 012 UX Research · 013 Machine Learning ·
 //   014 Atlassian · 015 Banking & Payments · 016 HR & Talent Management
 
+import '../../competency/data/level_hours_policy.dart';
 import '../../organization/data/org_models.dart';
 import 'approvals.dart';
 import 'crowd.dart';
@@ -17,12 +18,43 @@ import 'org_structure.dart';
 import 'projects.dart';
 
 // ------------------------------------------------------------- structure
+//
+// Division → Group → Department.
+
+final List<OrgDivision> sampleDivisions = [
+  OrgDivision(
+    id: 'DIV-01',
+    name: 'Research & Development',
+    code: 'RND',
+    description: 'Vehicle and application software, validation and quality engineering.',
+    crowdGroup: 'div-research-development',
+    createdAt: DateTime(2024, 1, 8),
+  ),
+  OrgDivision(
+    id: 'DIV-02',
+    name: 'Digital & IT',
+    code: 'DIT',
+    description: 'Data, analytics, cloud platforms and enterprise IT.',
+    crowdGroup: 'div-digital-it',
+    createdAt: DateTime(2024, 1, 8),
+  ),
+  OrgDivision(
+    id: 'DIV-03',
+    name: 'Corporate Management',
+    code: 'CM',
+    headId: 'EMP-1034',
+    description: 'Human resources, finance and the other corporate functions.',
+    crowdGroup: 'div-corporate',
+    createdAt: DateTime(2024, 1, 8),
+  ),
+];
 
 final List<OrgGroup> sampleGroups = [
   OrgGroup(
     id: 'GRP-01',
     name: 'Software Development',
     code: 'SWD',
+    divisionId: 'DIV-01',
     description: 'Application and product software teams.',
     crowdGroup: 'grp-software-development',
     createdAt: DateTime(2024, 1, 8),
@@ -31,6 +63,7 @@ final List<OrgGroup> sampleGroups = [
     id: 'GRP-02',
     name: 'Quality & Validation',
     code: 'QV',
+    divisionId: 'DIV-01',
     description: 'Testing, validation and quality engineering.',
     crowdGroup: 'grp-quality-validation',
     createdAt: DateTime(2024, 1, 8),
@@ -39,6 +72,7 @@ final List<OrgGroup> sampleGroups = [
     id: 'GRP-03',
     name: 'Data & Cloud Platforms',
     code: 'DCP',
+    divisionId: 'DIV-02',
     description: 'Data engineering, analytics, DevOps and cloud.',
     crowdGroup: 'grp-data-cloud',
     createdAt: DateTime(2024, 1, 8),
@@ -47,6 +81,7 @@ final List<OrgGroup> sampleGroups = [
     id: 'GRP-04',
     name: 'Corporate Functions',
     code: 'CORP',
+    divisionId: 'DIV-03',
     description: 'Human resources and other corporate teams.',
     crowdGroup: 'grp-corporate',
     createdAt: DateTime(2024, 1, 8),
@@ -195,6 +230,7 @@ final List<ProjectRecord> sampleProjects = [
       ProjectRequirement('CMP-011', 3, roleId: 'ROL-02'),
       ProjectRequirement('CMP-004', 3, roleId: 'ROL-02'),
       ProjectRequirement('CMP-006', 2, roleId: 'ROL-02'),
+      ProjectRequirement('CMP-007', 1, roleId: 'ROL-02'),
       ProjectRequirement('CMP-009', 3, roleId: 'ROL-03'),
       ProjectRequirement('CMP-005', 2, roleId: 'ROL-03'),
       ProjectRequirement('CMP-006', 3, roleId: 'ROL-07'),
@@ -456,18 +492,26 @@ List<ProfileChange> sampleProfileChanges() {
         ChangeReason.promotion, DateTime(2026, 6, 15), note: 'Mid-year promotion cycle'),
     change('EMP-1023', ChangeField.role, 'Data Analyst', 'Data Scientist', ChangeReason.promotion,
         DateTime(2026, 6, 15), note: 'Mid-year promotion cycle'),
-    // Q3 re-org: DevOps & Cloud joins the data platforms group.
-    for (final e in ['EMP-1025', 'EMP-1026', 'EMP-1027', 'EMP-1028', 'EMP-1029', 'EMP-1022'])
+    // Q3 re-org: DevOps & Cloud joins the data platforms group (and so the
+    // Digital & IT division).
+    for (final e in ['EMP-1025', 'EMP-1026', 'EMP-1027', 'EMP-1028', 'EMP-1029', 'EMP-1022']) ...[
+      change(e, ChangeField.division, 'Research & Development', 'Digital & IT', ChangeReason.reorg,
+          DateTime(2026, 7, 1),
+          note: 'Q3 2026 re-org: platform teams grouped together',
+          batch: 'DevOps & Cloud moved to Data & Cloud Platforms'),
       change(e, ChangeField.group, 'Software Development', 'Data & Cloud Platforms', ChangeReason.reorg,
           DateTime(2026, 7, 1),
           note: 'Q3 2026 re-org: platform teams grouped together',
           batch: 'DevOps & Cloud moved to Data & Cloud Platforms'),
+    ],
     // Varun Desai moves to the design team.
     change('EMP-1033', ChangeField.department, 'Engineering', 'UI/UX Design', ChangeReason.reorg,
         DateTime(2026, 8, 3), note: 'Front-end designers moved to UI/UX Design'),
     change('EMP-1033', ChangeField.manager, 'Priya Raman', 'Divya Menon', ChangeReason.reorg,
         DateTime(2026, 8, 3), note: 'Front-end designers moved to UI/UX Design'),
     // Vikram Singh transferred to Engineering.
+    change('EMP-1005', ChangeField.division, 'Digital & IT', 'Research & Development',
+        ChangeReason.transfer, DateTime(2026, 9, 15), note: 'Backend work for Analytics Platform'),
     change('EMP-1005', ChangeField.group, 'Data & Cloud Platforms', 'Software Development',
         ChangeReason.transfer, DateTime(2026, 9, 15), note: 'Backend work for Analytics Platform'),
     change('EMP-1005', ChangeField.department, 'Data & Analytics', 'Engineering', ChangeReason.transfer,
@@ -512,6 +556,7 @@ List<LevelUpRequest> sampleLevelUpRequests() {
     String tlName,
     DateTime raisedAt,
     String note, {
+    required int hours,
     int? required,
     List<String> projects = const [],
     String evidence = '',
@@ -528,6 +573,8 @@ List<LevelUpRequest> sampleLevelUpRequests() {
         requiredLevel: required,
         projectIds: projects,
         note: note,
+        hours: hours,
+        requiredHours: LevelHoursPolicy.instance.hoursFor(competencyId, from, to),
         evidence: evidence,
         raisedById: tl,
         raisedByName: tlName,
@@ -548,60 +595,76 @@ List<LevelUpRequest> sampleLevelUpRequests() {
     // ---- decided
     request('EMP-1008', 'CMP-003', 2, 3, priya, 'Priya Raman', DateTime(2026, 9, 22),
         'Built the offline sync module of Talent Hub on her own and reviews Dart PRs.',
+        hours: 430,
         required: 3, projects: ['PRJ-001'], status: ApprovalStatus.approved,
         decidedAt: DateTime(2026, 9, 24), decision: 'Matches the L3 guide. Approved.'),
     request('EMP-1014', 'CMP-009', 2, 3, karthik, 'Karthik Subramanian', DateTime(2026, 9, 30),
         'Owns the Selenium regression suite for Talent Hub (180 tests, stable for 6 sprints).',
+        hours: 415,
         required: 3, projects: ['PRJ-001'], status: ApprovalStatus.approved,
         decidedAt: DateTime(2026, 10, 3)),
     request('EMP-1011', 'CMP-011', null, 2, priya, 'Priya Raman', DateTime(2026, 10, 8),
         'Split the portal backend into three services with Priya\'s guidance.',
+        hours: 500,
         required: 2, projects: ['PRJ-004'], status: ApprovalStatus.approved,
         decidedAt: DateTime(2026, 10, 9)),
     request('EMP-1012', 'CMP-002', null, 2, priya, 'Priya Raman', DateTime(2026, 10, 12),
         'Completed the internal Python for Engineers course and wrote the data export scripts.',
+        hours: 540,
         required: 2, projects: ['PRJ-003'], evidence: 'Python_for_Engineers_certificate.pdf',
         status: ApprovalStatus.approved, decidedAt: DateTime(2026, 10, 15)),
     request('EMP-1020', 'CMP-006', null, 2, meera, 'Meera Iyer', DateTime(2026, 10, 19),
         'Containerised all Airflow jobs for the Analytics Platform prototype.',
+        hours: 600,
         required: 2, projects: ['PRJ-003'], status: ApprovalStatus.approved,
         decidedAt: DateTime(2026, 10, 21), decision: 'Approved – please add the Docker course certificate.'),
     request('EMP-1003', 'CMP-004', 3, 4, priya, 'Priya Raman', DateTime(2026, 10, 26),
         'Tuned the slow payment reconciliation queries (from 40 s to 2 s).',
+        hours: 260,
         required: 3, projects: ['PRJ-002'], status: ApprovalStatus.rejected,
         decidedAt: DateTime(2026, 10, 29),
         decision: 'Good work, but L4 needs the advanced SQL tuning assessment. Please book it first.'),
     request('EMP-1016', 'CMP-009', 1, 3, karthik, 'Karthik Subramanian', DateTime(2026, 11, 3),
         'Automated 40 smoke tests for the portal.',
+        hours: 210,
         status: ApprovalStatus.rejected, decidedAt: DateTime(2026, 11, 5),
         decision: 'Two levels at once – request L2 first, with the automation work as proof.'),
     // ---- pending
     request('EMP-1002', 'CMP-006', null, 2, priya, 'Priya Raman', DateTime(2026, 11, 6),
         'Finished the Docker Mastery course and containerised the Talent Hub API locally.',
+        hours: 420,
         required: 2, projects: ['PRJ-002', 'PRJ-003'], evidence: 'https://learn.example.com/cert/DM-48213'),
     request('EMP-1024', 'CMP-002', 1, 2, meera, 'Meera Iyer', DateTime(2026, 11, 8),
         'Writes pandas notebooks for the warranty dashboards every week now.',
+        hours: 340,
         required: 2, projects: ['PRJ-004']),
     request('EMP-1026', 'CMP-007', 2, 3, arjun, 'Arjun Nair', DateTime(2026, 11, 9),
         'Runs the cost-optimizer cluster on his own, including upgrades and autoscaling.',
+        hours: 410,
         required: 3, projects: ['PRJ-005']),
     request('EMP-1004', 'CMP-001', 2, 3, priya, 'Priya Raman', DateTime(2026, 11, 10),
         'Took over the Java notification service of Talent Hub; code reviews show L3 practices.',
+        hours: 300,
         required: 3, projects: ['PRJ-001']),
     request('EMP-1032', 'CMP-008', 2, 3, divya, 'Divya Menon', DateTime(2026, 11, 11),
         'Built the Talent Hub component library in Figma with variants and auto layout.',
+        hours: 450,
         required: 3, projects: ['PRJ-001'], evidence: 'https://figma.example.com/file/talent-hub-ui'),
     request('EMP-1009', 'CMP-011', 2, 3, priya, 'Priya Raman', DateTime(2026, 11, 12),
         'Designed the retry/outbox pattern for the payments events.',
+        hours: 380,
         required: 3, projects: ['PRJ-002']),
     request('EMP-1017', 'CMP-015', 1, 2, karthik, 'Karthik Subramanian', DateTime(2026, 11, 12),
         'Completed the payments domain training and wrote the settlement test plan.',
+        hours: 170,
         required: 2, projects: ['PRJ-002']),
     request('EMP-1031', 'CMP-012', 1, 2, divya, 'Divya Menon', DateTime(2026, 11, 13),
         'Ran 8 usability sessions for the portal and presented the findings.',
+        hours: 200,
         required: 2, projects: ['PRJ-004']),
     request('EMP-1007', 'CMP-003', 2, 3, priya, 'Priya Raman', DateTime(2026, 11, 14),
         'Leads the Flutter screens of Customer Portal 2.0.',
+        hours: 420,
         required: 3, projects: ['PRJ-004']),
   ];
   return list..sort((a, b) => b.raisedAt.compareTo(a.raisedAt));
@@ -641,11 +704,16 @@ const List<CrowdUser> sampleCrowdUsers = [
 ];
 
 const List<CrowdGroup> sampleCrowdGroups = [
-  CrowdGroup(name: 'grp-software-development', description: 'Software Development', members: 3),
-  CrowdGroup(name: 'grp-quality-validation', description: 'Quality & Validation', members: 2),
-  CrowdGroup(name: 'grp-data-cloud', description: 'Data & Cloud Platforms', members: 2),
-  CrowdGroup(name: 'grp-corporate', description: 'Corporate Functions', members: 1),
-  CrowdGroup(name: 'grp-vehicle-software', description: 'Vehicle Software – embedded and safety', members: 2),
+  CrowdGroup(name: 'div-research-development', description: 'Research & Development', members: 5),
+  CrowdGroup(name: 'div-digital-it', description: 'Digital & IT', members: 2),
+  CrowdGroup(name: 'div-corporate', description: 'Corporate Management', members: 1),
+  CrowdGroup(name: 'div-electrification', description: 'Electrification – EV and battery systems', members: 0),
+  CrowdGroup(name: 'grp-software-development', description: 'Software Development', parent: 'div-research-development', members: 3),
+  CrowdGroup(name: 'grp-quality-validation', description: 'Quality & Validation', parent: 'div-research-development', members: 2),
+  CrowdGroup(name: 'grp-data-cloud', description: 'Data & Cloud Platforms', parent: 'div-digital-it', members: 2),
+  CrowdGroup(name: 'grp-corporate', description: 'Corporate Functions', parent: 'div-corporate', members: 1),
+  CrowdGroup(name: 'grp-vehicle-software', description: 'Vehicle Software – embedded and safety', parent: 'div-research-development', members: 2),
+  CrowdGroup(name: 'grp-battery-systems', description: 'Battery Systems', parent: 'div-electrification', members: 0),
   CrowdGroup(name: 'dept-engineering', description: 'Engineering', parent: 'grp-software-development', members: 14),
   CrowdGroup(name: 'dept-ui-ux', description: 'UI/UX Design', parent: 'grp-software-development', members: 4),
   CrowdGroup(name: 'dept-quality-assurance', description: 'Quality Assurance', parent: 'grp-quality-validation', members: 7),
@@ -655,6 +723,7 @@ const List<CrowdGroup> sampleCrowdGroups = [
   CrowdGroup(name: 'dept-human-resources', description: 'Human Resources', parent: 'grp-corporate', members: 3),
   CrowdGroup(name: 'dept-functional-safety', description: 'Functional Safety – ISO 26262', parent: 'grp-vehicle-software', members: 1),
   CrowdGroup(name: 'dept-embedded-software', description: 'Embedded Software – AUTOSAR Classic', parent: 'grp-vehicle-software', members: 0),
+  CrowdGroup(name: 'dept-bms-software', description: 'BMS Software', parent: 'grp-battery-systems', members: 0),
   CrowdGroup(name: 'mobis-employees', description: 'All employees', members: 41),
   CrowdGroup(name: 'service-accounts', description: 'Technical accounts', members: 1),
 ];

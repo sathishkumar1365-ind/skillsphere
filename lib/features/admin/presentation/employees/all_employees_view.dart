@@ -46,7 +46,8 @@ class _Row {
   final EmployeeInsight insight;
 }
 
-/// All Employees: search, filter (group, department, role, status) and
+/// All Employees: search, filter (division, group, department, role,
+/// status) and
 /// sort; select one to open their profile.
 ///
 /// HRD sees everyone. A Team Lead sees only their own department
@@ -72,6 +73,7 @@ class _AllEmployeesViewState extends State<AllEmployeesView> {
 
   final TextEditingController _search = TextEditingController();
   String _query = '';
+  String? _divisionId;
   String? _groupId;
   String? _departmentId;
   String? _roleId;
@@ -103,12 +105,14 @@ class _AllEmployeesViewState extends State<AllEmployeesView> {
         _StatusFilter.all => true,
       };
       if (!statusOk) continue;
+      if (_divisionId != null && structure.divisionOfDepartment(e.departmentId)?.id != _divisionId) continue;
       if (_groupId != null && structure.departmentById(e.departmentId)?.groupId != _groupId) continue;
       if (_departmentId != null && e.departmentId != _departmentId) continue;
       if (_roleId != null && e.roleId != _roleId) continue;
       if (query.isNotEmpty) {
         final text = '${e.id} ${e.name} ${e.email} ${e.designation} ${employees.departmentNameOf(e)} '
-                '${employees.groupNameOf(e)} ${RoleRepository.instance.nameOf(e.roleId)} ${e.location.label}'
+                '${employees.groupNameOf(e)} ${employees.divisionNameOf(e)} '
+                '${RoleRepository.instance.nameOf(e.roleId)} ${e.location.label}'
             .toLowerCase();
         if (!text.contains(query)) continue;
       }
@@ -153,10 +157,12 @@ class _AllEmployeesViewState extends State<AllEmployeesView> {
         final shown = rows.take(_limit).toList();
         final width = MediaQuery.sizeOf(context).width;
         final kpiColumns = width >= 900 ? 4 : 2;
-        final groups = [...structure.groups.value]..sort((a, b) => a.name.compareTo(b.name));
-        final departments = (_groupId == null
-                ? [...structure.departments.value]
-                : structure.departmentsIn(_groupId!))
+        final divisions = [...structure.divisions.value]..sort((a, b) => a.name.compareTo(b.name));
+        final groups = (_divisionId == null ? [...structure.groups.value] : structure.groupsIn(_divisionId!))
+          ..sort((a, b) => a.name.compareTo(b.name));
+        final departments = (_groupId != null
+                ? structure.departmentsIn(_groupId!)
+                : (_divisionId != null ? structure.departmentsInDivision(_divisionId!) : [...structure.departments.value]))
           ..sort((a, b) => a.name.compareTo(b.name));
 
         return Column(
@@ -200,6 +206,24 @@ class _AllEmployeesViewState extends State<AllEmployeesView> {
                   ),
                 ),
                 if (!_scoped) ...[
+                  SizedBox(
+                    width: 220,
+                    child: AdminDropdown<String>(
+                      value: _divisionId ?? '',
+                      items: ['', for (final d in divisions) d.id],
+                      labelOf: (id) => id.isEmpty ? 'All divisions' : (structure.divisionById(id)?.name ?? id),
+                      onChanged: (id) => setState(() {
+                        _divisionId = id.isEmpty ? null : id;
+                        if (_divisionId != null && structure.divisionOfGroup(_groupId)?.id != _divisionId) {
+                          _groupId = null;
+                        }
+                        if (_divisionId != null && structure.divisionOfDepartment(_departmentId)?.id != _divisionId) {
+                          _departmentId = null;
+                        }
+                        _reset();
+                      }),
+                    ),
+                  ),
                   SizedBox(
                     width: 220,
                     child: AdminDropdown<String>(
@@ -370,7 +394,7 @@ class _Table extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(flex: 30, child: Text('EMPLOYEE', style: head())),
-                Expanded(flex: 26, child: Text(showDepartment ? 'GROUP › DEPARTMENT' : 'REPORTS TO', style: head())),
+                Expanded(flex: 26, child: Text(showDepartment ? 'GROUP › DEPARTMENT · DIVISION' : 'REPORTS TO', style: head())),
                 Expanded(flex: 18, child: Text('ROLE', style: head())),
                 Expanded(flex: 16, child: Text('LOCATION', style: head())),
                 Expanded(flex: 18, child: Text('READINESS', style: head())),
@@ -441,14 +465,31 @@ class _TableRowState extends State<_TableRow> {
                   ),
                   Expanded(
                     flex: 26,
-                    child: Text(
-                      widget.showDepartment
-                          ? '${employees.groupNameOf(e)} › ${employees.departmentNameOf(e)}'
-                          : employees.managerLabel(e),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: HomeText.body(13, color: HomeColors.body),
-                    ),
+                    child: widget.showDepartment
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${employees.groupNameOf(e)} › ${employees.departmentNameOf(e)}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: HomeText.body(13, color: HomeColors.body),
+                              ),
+                              Text(
+                                employees.divisionNameOf(e),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: HomeText.body(11.5, weight: FontWeight.w600, color: HomeColors.muted),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            employees.managerLabel(e),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: HomeText.body(13, color: HomeColors.body),
+                          ),
                   ),
                   Expanded(
                     flex: 18,
@@ -563,7 +604,7 @@ class _Card extends StatelessWidget {
                   trailing: employees.isNew(e.id) ? const NewLabel() : _statusPill(e),
                 ),
                 const SizedBox(height: 12),
-                Text('${employees.groupNameOf(e)} › ${employees.departmentNameOf(e)}',
+                Text(employees.placementOf(e),
                     style: HomeText.body(13, color: HomeColors.body)),
                 Text('${RoleRepository.instance.nameOf(e.roleId)} · ${e.location.short}',
                     style: HomeText.body(12.5, color: HomeColors.muted)),

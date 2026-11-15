@@ -119,6 +119,7 @@ class HomeData {
     required this.learningPlan,
     this.nextReview,
     this.unreadNotifications = 0,
+    this.readiness,
   });
 
   final String firstName;
@@ -139,26 +140,42 @@ class HomeData {
   final DateTime? nextReview;
   final int unreadNotifications;
 
-  /// A copy with some fields replaced (used to greet the signed-in user
-  /// while the rest of the Home page still shows sample data).
-  HomeData copyWith({String? firstName, String? initials}) => HomeData(
+  /// Project readiness (0–100) worked out elsewhere, e.g. the level-weighted
+  /// readiness of the live data. Null = held / total.
+  final int? readiness;
+
+  /// A copy with some fields replaced (used to greet the signed-in user and
+  /// to show their live gaps, readiness and plans while My Skills and
+  /// Projects still show sample data).
+  HomeData copyWith({
+    String? firstName,
+    String? initials,
+    int? skillsAcquired,
+    int? skillsInProgress,
+    int? requiredSkillsHeld,
+    int? requiredSkillsTotal,
+    List<SkillGap>? gaps,
+    int? readiness,
+  }) =>
+      HomeData(
         firstName: firstName ?? this.firstName,
         initials: initials ?? this.initials,
-        skillsAcquired: skillsAcquired,
-        skillsInProgress: skillsInProgress,
-        requiredSkillsHeld: requiredSkillsHeld,
-        requiredSkillsTotal: requiredSkillsTotal,
+        skillsAcquired: skillsAcquired ?? this.skillsAcquired,
+        skillsInProgress: skillsInProgress ?? this.skillsInProgress,
+        requiredSkillsHeld: requiredSkillsHeld ?? this.requiredSkillsHeld,
+        requiredSkillsTotal: requiredSkillsTotal ?? this.requiredSkillsTotal,
         skills: skills,
         projects: projects,
-        gaps: gaps,
+        gaps: gaps ?? this.gaps,
         learningPlan: learningPlan,
         nextReview: nextReview,
         unreadNotifications: unreadNotifications,
+        readiness: readiness ?? this.readiness,
       );
 
-  int get readinessPercent => requiredSkillsTotal == 0
-      ? 100
-      : (requiredSkillsHeld * 100 / requiredSkillsTotal).round();
+  int get readinessPercent =>
+      readiness ??
+      (requiredSkillsTotal == 0 ? 100 : (requiredSkillsHeld * 100 / requiredSkillsTotal).round());
 
   int get missingRequiredSkills {
     final missing = requiredSkillsTotal - requiredSkillsHeld;

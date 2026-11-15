@@ -33,7 +33,7 @@ enum _Period {
 }
 
 enum _FieldFilter {
-  placement('Group & department'),
+  placement('Division, group & dept'),
   all('All changes'),
   manager('Reporting manager'),
   designation('Designation'),
@@ -67,7 +67,7 @@ class _Entry {
   Set<String> get employeeIds => {for (final c in changes) c.employeeId};
 }
 
-/// Console › Profile Changes: who moved between groups and departments
+/// Console › Profile Changes: who moved between divisions, groups and departments
 /// (re-orgs, transfers) and other profile changes, with a re-org tool to
 /// move several people at once.
 class ProfileChangesView extends StatefulWidget {
@@ -87,6 +87,7 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
   String _query = '';
   _Period _period = _Period.days90;
   _FieldFilter _field = _FieldFilter.placement;
+  String? _divisionName;
   String? _groupName;
   String? _departmentName;
   ChangeReason? _reason;
@@ -104,7 +105,7 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
     final moved = await showSwingPanel<int>(
       context: context,
       title: 'Move employees',
-      subtitle: 'Re-org: move several people to another department (and group) at once. '
+      subtitle: 'Re-org: move several people to another department (and so group and division) at once. '
           'Every change is logged here.',
       width: 820,
       builder: (panelContext) => _MoveForm(user: widget.user, onDone: (n) => Navigator.of(panelContext).pop(n)),
@@ -123,11 +124,12 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
     final employees = EmployeeRepository.instance;
     final structure = OrgStructureRepository.instance;
     return ListenableBuilder(
-      listenable: Listenable.merge([employees.changes, employees.employees, structure.groups, structure.departments]),
+      listenable: Listenable.merge([employees.changes, employees.employees, structure.listenable]),
       builder: (context, _) {
         final now = DateTime.now();
         final inPeriod = employees.changes.value.where((c) => _period.includes(c.effectiveDate, now)).toList();
         final placement = inPeriod.where((c) => c.field.isPlacement).toList();
+        final divisionMoves = placement.where((c) => c.field == ChangeField.division).length;
         final groupMoves = placement.where((c) => c.field == ChangeField.group).length;
         final departmentMoves = placement.where((c) => c.field == ChangeField.department).length;
         final affected = {for (final c in placement) c.employeeId}.length;
@@ -136,6 +138,13 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
         final filtered = inPeriod.where((c) {
           if (!_field.matches(c.field)) return false;
           if (_reason != null && c.reason != _reason) return false;
+          if (_divisionName != null) {
+            final e = employees.byId(c.employeeId);
+            final touchesDivision =
+                (c.field == ChangeField.division && (c.from == _divisionName || c.to == _divisionName)) ||
+                    (e != null && employees.divisionNameOf(e) == _divisionName);
+            if (!touchesDivision) return false;
+          }
           if (_groupName != null) {
             final e = employees.byId(c.employeeId);
             final touchesGroup = (c.field == ChangeField.group && (c.from == _groupName || c.to == _groupName)) ||
@@ -178,6 +187,7 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
         }
         final shown = entries.take(_limit).toList();
 
+        final divisionNames = [for (final d in structure.divisions.value) d.name]..sort();
         final groupNames = [for (final g in structure.groups.value) g.name]..sort();
         final departmentNames = [for (final d in structure.departments.value) d.name]..sort();
         final width = MediaQuery.sizeOf(context).width;
@@ -187,24 +197,25 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
           children: [
             SectionHeader(
               title: 'PROFILE CHANGES',
-              subtitle: 'Track re-orgs: every move between groups and departments, plus changes of '
+              subtitle: 'Track re-orgs: every move between divisions, groups and departments, plus changes of '
                   'manager, designation, role and status, with the reason and the date it takes effect.',
               trailing: PillButton(label: 'Move employees (re-org)', onPressed: _openMove),
             ),
             const SizedBox(height: 24),
             EqualHeightGrid(
-              columns: width >= 900 ? 4 : 2,
+              columns: width >= 1100 ? 5 : (width >= 700 ? 3 : 2),
               spacing: 14,
               runSpacing: 14,
               children: [
                 KpiCard(value: affected, label: 'Employees moved', caption: _period.label),
+                KpiCard(value: divisionMoves, label: 'Division changes', caption: 'Incl. group moves'),
                 KpiCard(value: groupMoves, label: 'Group changes', caption: 'Incl. department moves'),
                 KpiCard(value: departmentMoves, label: 'Department changes'),
                 KpiCard(value: inPeriod.length, label: 'All profile changes', dark: true),
               ],
             ),
             const SizedBox(height: 20),
-            _FlowPanel(changes: placement, departments: departmentNames, groups: groupNames),
+            _FlowPanel(changes: placement, divisions: divisionNames, departments: departmentNames, groups: groupNames),
             const SizedBox(height: 22),
             ChoicePills<_Period>(
               options: _Period.values,
@@ -237,6 +248,18 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
                     hint: 'Search person, department, note…',
                     onChanged: (v) => setState(() {
                       _query = v;
+                      _reset();
+                    }),
+                  ),
+                ),
+                SizedBox(
+                  width: 230,
+                  child: AdminDropdown<String>(
+                    value: _divisionName ?? '',
+                    items: ['', ...divisionNames],
+                    labelOf: (n) => n.isEmpty ? 'Any division' : n,
+                    onChanged: (n) => setState(() {
+                      _divisionName = n.isEmpty ? null : n;
                       _reset();
                     }),
                   ),
@@ -319,34 +342,41 @@ class _ProfileChangesViewState extends State<ProfileChangesView> {
   }
 }
 
-/// People in and out per department (and group) in the period.
+/// People in and out per division, group and department in the period.
 class _FlowPanel extends StatelessWidget {
-  const _FlowPanel({required this.changes, required this.departments, required this.groups});
+  const _FlowPanel({
+    required this.changes,
+    required this.divisions,
+    required this.departments,
+    required this.groups,
+  });
 
   final List<ProfileChange> changes;
+  final List<String> divisions;
   final List<String> departments;
   final List<String> groups;
 
   @override
   Widget build(BuildContext context) {
-    final rows = <(String, int, int, bool)>[];
-    for (final name in groups) {
-      final inCount = changes.where((c) => c.field == ChangeField.group && c.to == name).length;
-      final outCount = changes.where((c) => c.field == ChangeField.group && c.from == name).length;
-      if (inCount + outCount > 0) rows.add((name, inCount, outCount, true));
+    final rows = <(String, int, int, ChangeField)>[];
+    void collect(List<String> names, ChangeField field) {
+      for (final name in names) {
+        final inCount = changes.where((c) => c.field == field && c.to == name).length;
+        final outCount = changes.where((c) => c.field == field && c.from == name).length;
+        if (inCount + outCount > 0) rows.add((name, inCount, outCount, field));
+      }
     }
-    for (final name in departments) {
-      final inCount = changes.where((c) => c.field == ChangeField.department && c.to == name).length;
-      final outCount = changes.where((c) => c.field == ChangeField.department && c.from == name).length;
-      if (inCount + outCount > 0) rows.add((name, inCount, outCount, false));
-    }
+
+    collect(divisions, ChangeField.division);
+    collect(groups, ChangeField.group);
+    collect(departments, ChangeField.department);
     final most = rows.fold<int>(1, (m, r) => math.max(m, math.max(r.$2, r.$3)));
     return OrgPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const PanelTitle('Movement in the period',
-              subtitle: 'People who joined (in) or left (out) each group and department.'),
+              subtitle: 'People who joined (in) or left (out) each division, group and department.'),
           const SizedBox(height: 14),
           if (rows.isEmpty)
             Text('No moves in this period.', style: HomeText.body(13.5, color: HomeColors.muted))
@@ -359,8 +389,18 @@ class _FlowPanel extends StatelessWidget {
                     final narrow = constraints.maxWidth < 560;
                     final label = Row(
                       children: [
-                        Icon(r.$4 ? Icons.account_tree_outlined : Icons.apartment_rounded,
-                            size: 16, color: HomeColors.muted),
+                        Tooltip(
+                          message: r.$4.label,
+                          child: Icon(
+                            switch (r.$4) {
+                              ChangeField.division => Icons.domain_rounded,
+                              ChangeField.group => Icons.account_tree_outlined,
+                              _ => Icons.apartment_rounded,
+                            },
+                            size: 16,
+                            color: HomeColors.muted,
+                          ),
+                        ),
                         const SizedBox(width: 6),
                         Flexible(
                           child: Text(r.$1,
@@ -659,6 +699,7 @@ class _MoveFormState extends State<_MoveForm> {
   final _note = TextEditingController();
   List<String> _people = [];
   String? _fromDepartmentId;
+  String? _divisionId;
   String? _groupId;
   String? _departmentId;
   String? _managerId;
@@ -681,7 +722,7 @@ class _MoveFormState extends State<_MoveForm> {
       return;
     }
     if (target == null) {
-      setState(() => _error = 'Choose the group and department they move to.');
+      setState(() => _error = 'Choose the division, group and department they move to.');
       return;
     }
     setState(() {
@@ -713,11 +754,15 @@ class _MoveFormState extends State<_MoveForm> {
     final structure = OrgStructureRepository.instance;
     final active = [...employees.active]..sort((a, b) => a.name.compareTo(b.name));
     final departments = [...structure.departments.value]..sort((a, b) => a.name.compareTo(b.name));
-    final groups = [...structure.groups.value]..sort((a, b) => a.name.compareTo(b.name));
+    final divisions = [...structure.divisions.value]..sort((a, b) => a.name.compareTo(b.name));
+    final groups = _divisionId == null ? const <OrgGroup>[] : structure.groupsIn(_divisionId!);
     final targetDepartments = _groupId == null ? const <OrgDepartment>[] : structure.departmentsIn(_groupId!);
     final target = structure.departmentById(_departmentId);
     final targetGroup = structure.groupOfDepartment(_departmentId);
+    final targetDivision = structure.divisionOfDepartment(_departmentId);
     final selected = [for (final id in _people) if (employees.byId(id) case final EmployeeProfile e) e];
+    final divisionChanges =
+        target == null ? 0 : selected.where((e) => employees.divisionNameOf(e) != targetDivision?.name).length;
     final groupChanges = target == null ? 0 : selected.where((e) => employees.groupNameOf(e) != targetGroup?.name).length;
     final departmentChanges = target == null ? 0 : selected.where((e) => e.departmentId != target.id).length;
 
@@ -772,9 +817,25 @@ class _MoveFormState extends State<_MoveForm> {
         StepPanel(
           number: 2,
           title: 'Where to',
-          subtitle: 'The new department (its group comes with it) and, optionally, a new manager for all.',
+          subtitle: 'The new department (its group and division come with it) and, optionally, a new '
+              'manager for all.',
           child: FieldGrid(
             children: [
+              LabeledField(
+                label: 'Division',
+                required: true,
+                child: AdminDropdown<String>(
+                  value: _divisionId,
+                  items: [for (final d in divisions) d.id],
+                  labelOf: (id) => structure.divisionById(id)?.name ?? id,
+                  hint: 'Choose a division',
+                  onChanged: (id) => setState(() {
+                    _divisionId = id;
+                    _groupId = null;
+                    _departmentId = null;
+                  }),
+                ),
+              ),
               LabeledField(
                 label: 'Group',
                 required: true,
@@ -783,10 +844,13 @@ class _MoveFormState extends State<_MoveForm> {
                   items: [for (final g in groups) g.id],
                   labelOf: (id) => structure.groupById(id)?.name ?? id,
                   hint: 'Choose a group',
-                  onChanged: (id) => setState(() {
-                    _groupId = id;
-                    _departmentId = null;
-                  }),
+                  disabledText: 'Choose a division first',
+                  onChanged: _divisionId == null
+                      ? null
+                      : (id) => setState(() {
+                            _groupId = id;
+                            _departmentId = null;
+                          }),
                 ),
               ),
               LabeledField(
@@ -864,8 +928,9 @@ class _MoveFormState extends State<_MoveForm> {
         if (target != null && selected.isNotEmpty)
           InfoNote(
             text: '${selected.length} ${selected.length == 1 ? 'person' : 'people'} → ${target.name} '
-                '(${targetGroup?.name ?? '—'}): $departmentChanges department and $groupChanges group '
-                '${groupChanges + departmentChanges == 1 ? 'change' : 'changes'} will be logged.',
+                '(${targetDivision?.name ?? '—'} › ${targetGroup?.name ?? '—'}): $departmentChanges department, '
+                '$groupChanges group and $divisionChanges division '
+                '${divisionChanges + groupChanges + departmentChanges == 1 ? 'change' : 'changes'} will be logged.',
           ),
         if (_error != null) ...[
           const SizedBox(height: 12),

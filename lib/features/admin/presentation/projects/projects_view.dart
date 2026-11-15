@@ -445,6 +445,7 @@ class _ProjectDetails extends StatelessWidget {
               minFieldWidth: 180,
               children: [
                 DetailItem(label: 'Department', value: structure.departmentName(p.departmentId), icon: Icons.apartment_rounded),
+                DetailItem(label: 'Division', value: structure.divisionNameOfDepartment(p.departmentId), icon: Icons.domain_rounded),
                 DetailItem(label: 'Group', value: structure.groupNameOfDepartment(p.departmentId), icon: Icons.account_tree_outlined),
                 DetailItem(label: 'Customer', value: p.customer, icon: Icons.handshake_outlined),
                 DetailItem(label: 'Project manager', value: employees.byId(p.managerId)?.name ?? '—', icon: Icons.person_outline_rounded),

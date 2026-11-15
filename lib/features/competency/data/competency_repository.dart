@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/auth/app_user.dart';
 import 'competency_models.dart';
 import 'competency_sample_data.dart';
+import 'level_progress.dart';
 
 /// Thrown when a competency can't be added. [message] is safe to show.
 class CompetencyException implements Exception {
@@ -93,6 +94,12 @@ class CompetencyRepository {
   /// Sets [employeeId]'s level in several competencies at once (HRD only):
   /// competency id → level 0–5, or null to remove it from the profile.
   ///
+  /// Every changed level is also kept in the level history
+  /// (LevelProgressRepository) with [source], the [hours] acquired since the
+  /// previous confirmation (competency id → hours; from the Team Lead's
+  /// request) and the approved [requestId]. The record's date is the "Last
+  /// confirmed" date shown on the profile.
+  ///
   /// Later: PUT /api/employees/{id}/competencies (SUPER_ADMIN). Team Leads
   /// never call this: their changes go through HR approval instead.
   void setLevels({
@@ -100,11 +107,37 @@ class CompetencyRepository {
     required String employeeId,
     required Map<String, int?> levels,
     bool verified = true,
+    LevelChangeSource source = LevelChangeSource.hrd,
+    Map<String, int> hours = const {},
+    String? requestId,
   }) {
     if (!by.role.canManageCompetencies) {
       throw const CompetencyException('Only the HRD team can change competency levels.');
     }
     if (levels.isEmpty) return;
+
+    // History first, while the old levels are still known.
+    final now = DateTime.now();
+    for (final entry in levels.entries) {
+      final level = entry.value;
+      if (level == null || byId(entry.key) == null) continue;
+      final clamped = level.clamp(CompetencyLevel.min, CompetencyLevel.max).toInt();
+      final before = holderOf(entry.key, employeeId);
+      final unchanged = before != null && before.level == clamped && before.verified == verified;
+      if (unchanged) continue;
+      LevelProgressRepository.instance.record(
+        employeeId: employeeId,
+        competencyId: entry.key,
+        fromLevel: before?.level,
+        toLevel: clamped,
+        hours: hours[entry.key] ?? 0,
+        source: verified ? source : LevelChangeSource.selfAssessed,
+        by: by.name,
+        requestId: requestId,
+        on: now,
+      );
+    }
+
     competencies.value = List<Competency>.unmodifiable([
       for (final c in competencies.value)
         if (levels.containsKey(c.id))

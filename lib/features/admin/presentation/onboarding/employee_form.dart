@@ -6,6 +6,7 @@ import '../../../additional_competency/data/additional_competency.dart';
 import '../../../additional_competency/data/additional_competency_repository.dart';
 import '../../../competency/data/competency_models.dart';
 import '../../../competency/data/competency_repository.dart';
+import '../../../competency/data/level_hours_policy.dart';
 import '../../../competency/presentation/widgets/competency_common.dart';
 import '../../../home/presentation/home_theme.dart';
 import '../../../home/presentation/widgets/home_common.dart';
@@ -24,7 +25,7 @@ const String _otherCity = '__other__';
 /// The employee form: onboarding a new employee (HRD) or updating a
 /// profile (HRD, or a Team Lead for their own department).
 ///
-/// Team Leads can't change group, department or status, and the skill
+/// Team Leads can't change division, group, department or status, and the skill
 /// levels they raise or add are sent to HR as level-up requests instead of
 /// being saved directly.
 class EmployeeForm extends StatefulWidget {
@@ -59,8 +60,16 @@ class _EmployeeFormState extends State<EmployeeForm> {
   final _changeNote = TextEditingController();
   final _levelNote = TextEditingController();
 
+  /// Team Lead: hours acquired since the last confirmed level, per raised
+  /// competency (created on demand).
+  final Map<String, TextEditingController> _levelHours = {};
+
+  TextEditingController _hoursFor(String competencyId) =>
+      _levelHours.putIfAbsent(competencyId, TextEditingController.new);
+
   Gender? _gender;
   EmploymentStatus _status = EmploymentStatus.active;
+  String? _divisionId;
   String? _groupId;
   String? _departmentId;
   String? _managerId;
@@ -115,6 +124,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     _status = e.status;
     _departmentId = e.departmentId;
     _groupId = _structure.departmentById(e.departmentId)?.groupId;
+    _divisionId = _structure.groupById(_groupId)?.divisionId;
     _managerId = e.managerId;
     _managerName = e.managerName;
     _roleId = e.roleId;
@@ -147,6 +157,9 @@ class _EmployeeFormState extends State<EmployeeForm> {
     for (final c in [_id, _name, _email, _designation, _intro, _otherCityText, _changeNote, _levelNote]) {
       c.dispose();
     }
+    for (final c in _levelHours.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -172,6 +185,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     final emailIssue = _employees.emailProblem(_email.text, exceptId: widget.employee?.id);
     if (emailIssue != null) errors['email'] = emailIssue;
     if (_gender == null) errors['gender'] = 'Choose an option.';
+    if (_divisionId == null) errors['division'] = 'Choose the division.';
     if (_groupId == null) errors['group'] = 'Choose the group.';
     if (_departmentId == null) errors['department'] = 'Choose the department.';
     final designation = _designation.text.trim();
@@ -188,6 +202,12 @@ class _EmployeeFormState extends State<EmployeeForm> {
     }
     if (_levelsNeedApproval && _levelChanges.isNotEmpty && _levelNote.text.trim().length < ApprovalRules.noteMin) {
       errors['levelNote'] = 'Tell HR why (at least ${ApprovalRules.noteMin} characters).';
+    }
+    if (_levelsNeedApproval) {
+      for (final id in _levelChanges.keys) {
+        final problem = ApprovalRules.hoursProblem(ApprovalRules.parseHours(_hoursFor(id).text));
+        if (problem != null) errors['hours-$id'] = problem;
+      }
     }
     return errors;
   }
@@ -301,6 +321,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
           competencyId: entry.key,
           toLevel: entry.value,
           note: _levelNote.text,
+          hours: ApprovalRules.parseHours(_hoursFor(entry.key).text) ?? 0,
           projectIds: _projectIds.toList(),
         );
       }
@@ -320,6 +341,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     setState(() {
       _gender = null;
       _status = EmploymentStatus.active;
+      _divisionId = null;
       _groupId = null;
       _departmentId = null;
       _managerId = null;
@@ -387,6 +409,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     final errors = _errors;
     return ListenableBuilder(
       listenable: Listenable.merge([
+        _structure.divisions,
         _structure.groups,
         _structure.departments,
         RoleRepository.instance.roles,
@@ -541,7 +564,8 @@ class _EmployeeFormState extends State<EmployeeForm> {
   }
 
   Widget _organisation(Map<String, String> errors) {
-    final groups = [..._structure.groups.value]..sort((a, b) => a.name.compareTo(b.name));
+    final divisions = [..._structure.divisions.value]..sort((a, b) => a.name.compareTo(b.name));
+    final groups = _divisionId == null ? const <OrgGroup>[] : _structure.groupsIn(_divisionId!);
     final departments = _groupId == null ? const <OrgDepartment>[] : _structure.departmentsIn(_groupId!);
     final roles = RoleRepository.instance.active;
     // Keep a now-inactive role visible when editing.
@@ -554,7 +578,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     final managers = _employees.active.where((e) => e.id != selfId).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     final manager = _employees.byId(_managerId);
-    final lockReason = 'Only the HRD team can move people between groups and departments';
+    final lockReason = 'Only the HRD team can move people between divisions, groups and departments';
 
     return StepPanel(
       number: 2,
@@ -562,6 +586,28 @@ class _EmployeeFormState extends State<EmployeeForm> {
       subtitle: 'Where they sit and who they report to.',
       child: FieldGrid(
         children: [
+          LabeledField(
+            label: 'Division',
+            required: true,
+            locked: !_canPlace,
+            lockedReason: lockReason,
+            child: AdminDropdown<String>(
+              value: _divisionId,
+              items: [for (final d in divisions) d.id],
+              labelOf: (id) => _structure.divisionById(id)?.name ?? id,
+              hint: 'Choose a division',
+              errorText: _error('division', errors),
+              onChanged: _canPlace
+                  ? (id) => setState(() {
+                        _divisionId = id;
+                        if (_structure.groupById(_groupId)?.divisionId != id) {
+                          _groupId = null;
+                          _departmentId = null;
+                        }
+                      })
+                  : null,
+            ),
+          ),
           LabeledField(
             label: 'Group',
             required: true,
@@ -572,8 +618,9 @@ class _EmployeeFormState extends State<EmployeeForm> {
               items: [for (final g in groups) g.id],
               labelOf: (id) => _structure.groupById(id)?.name ?? id,
               hint: 'Choose a group',
+              disabledText: _divisionId == null ? 'Choose a division first' : null,
               errorText: _error('group', errors),
-              onChanged: _canPlace
+              onChanged: _canPlace && _divisionId != null
                   ? (id) => setState(() {
                         _groupId = id;
                         if (_structure.departmentById(_departmentId)?.groupId != id) _departmentId = null;
@@ -773,6 +820,21 @@ class _EmployeeFormState extends State<EmployeeForm> {
                   'levels until HR approves.',
             ),
             const SizedBox(height: 10),
+            const FieldLabel('Hours acquired since the last confirmed level', required: true),
+            for (final entry in changes.entries)
+              if (competencies.byId(entry.key) case final Competency competency)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _LevelHoursRow(
+                    competency: competency,
+                    from: _originalLevels[entry.key],
+                    to: entry.value,
+                    controller: _hoursFor(entry.key),
+                    errorText: _error('hours-${entry.key}', errors),
+                    onChanged: () => setState(() {}),
+                  ),
+                ),
+            const SizedBox(height: 6),
             LabeledField(
               label: 'Note for HR',
               required: true,
@@ -906,7 +968,7 @@ class _EmployeeFormState extends State<EmployeeForm> {
     return StepPanel(
       icon: Icons.history_rounded,
       title: 'Why is this changing?',
-      subtitle: 'Changes to group, department, manager, designation, role or status are '
+      subtitle: 'Changes to division, group, department, manager, designation, role or status are '
           'logged in Profile Changes.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1480,6 +1542,73 @@ class CertificateTile extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Team Lead: hours acquired since the last confirmed level for one raised
+/// competency, next to what the hours policy asks for that jump.
+class _LevelHoursRow extends StatelessWidget {
+  const _LevelHoursRow({
+    required this.competency,
+    required this.from,
+    required this.to,
+    required this.controller,
+    required this.errorText,
+    required this.onChanged,
+  });
+
+  final Competency competency;
+  final int? from;
+  final int to;
+  final TextEditingController controller;
+  final String? errorText;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final policy = LevelHoursPolicy.instance.hoursBetween(competency.category, from, to);
+    final entered = ApprovalRules.parseHours(controller.text);
+    final short = entered != null && entered < policy ? policy - entered : 0;
+    final below = short > 0;
+    final label = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('${competency.name} · ${from == null ? 'New' : 'L$from'} → L$to',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: HomeText.body(13.5, weight: FontWeight.w700, color: HomeColors.ink)),
+        Text(
+          'Policy: ${hoursLabel(policy)} (${competency.category.label})'
+          '${below ? ' · ${hoursLabel(short)} short – HR will see this' : ''}',
+          style: HomeText.body(12, color: below ? HomeColors.orangeText : HomeColors.muted),
+        ),
+      ],
+    );
+    final field = TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      style: adminInputStyle,
+      onChanged: (_) => onChanged(),
+      decoration: adminDecoration(hint: 'e.g. ${policy == 0 ? 40 : policy}', errorText: errorText)
+          .copyWith(suffixText: 'h'),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth < 460
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [label, const SizedBox(height: 6), field],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: Padding(padding: const EdgeInsets.only(top: 4), child: label)),
+                const SizedBox(width: 12),
+                SizedBox(width: 170, child: field),
+              ],
+            ),
     );
   }
 }

@@ -15,6 +15,8 @@ import '../../../home/presentation/widgets/projects_section.dart' show MatchRing
 import '../../../home/presentation/widgets/sphere_scroll_page.dart';
 import '../../../organization/data/org_models.dart';
 import '../../../organization/presentation/widgets/org_common.dart';
+import '../../../training_plan/presentation/training_plan_form.dart';
+import '../../../training_plan/presentation/training_plan_section.dart';
 import '../../data/admin_base.dart';
 import '../../data/approvals.dart';
 import '../../data/employees.dart';
@@ -26,16 +28,18 @@ import '../approvals/request_level_up_dialog.dart';
 import '../onboarding/employee_form.dart';
 import '../widgets/admin_common.dart';
 import '../widgets/console_top_bar.dart';
-import 'competency_gap_table.dart';
+import 'acquired_competency_table.dart';
+import 'employee_gaps_panel.dart';
 
-/// An employee's profile: who they are, their projects, the combined
-/// required-vs-acquired competency table with gaps, certificates and the
-/// history of profile changes and level-ups.
+/// An employee's profile: who they are, their acquired competencies with
+/// the level history (last confirmed, hours), the skill gaps reported by
+/// their projects (table + chart), their training plan, projects,
+/// certificates and the history of profile changes and level-ups.
 ///
-/// * HRD: any employee; Update profile (everything).
-/// * Team Lead: own department; Update profile (not group, department,
-///   status, not themselves) and Request level-up.
-/// * Employee: their own profile, read-only.
+/// * HRD: any employee; Update profile (everything); sees the plan.
+/// * Team Lead: own department; Update profile (not division, group,
+///   department, status, not themselves), Request level-up; sees the plan.
+/// * Employee: their own profile, read-only, except their training plan.
 class EmployeeProfilePage extends StatefulWidget {
   const EmployeeProfilePage({super.key, required this.user, required this.employeeId, this.onLogout});
 
@@ -65,7 +69,7 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
       context: context,
       title: 'Update profile',
       subtitle: '${profile.name} · ${profile.id}'
-          '${user.role.canManageOrganization ? '' : ' · group, department and status are managed by HRD'}',
+          '${user.role.canManageOrganization ? '' : ' · division, group, department and status are managed by HRD'}',
       width: 900,
       builder: (panelContext) => EmployeeForm(
         user: user,
@@ -88,6 +92,13 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
     if (request == null || !mounted) return;
     final name = CompetencyRepository.instance.byId(request.competencyId)?.name ?? 'the competency';
     showAdminMessage(context, 'Sent to HR: $name → L${request.toLevel} for ${profile.firstName}.');
+  }
+
+  Future<void> _plan(EmployeeProfile profile, GapEntry gap) async {
+    final saved = await showTrainingPlanForm(context: context, user: widget.user, employee: profile, gap: gap);
+    if (saved != null && mounted) {
+      showAdminMessage(context, 'Added to your training plan: ${saved.title}.');
+    }
   }
 
   void _openCompetency(Competency competency) {
@@ -143,6 +154,10 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         final insight = Insights.of(profile);
         final canEdit = _employees.canEdit(user, profile);
         final canRequest = _employees.canRequestLevelUp(user, profile);
+        final own = profile.id == user.id;
+        const competenciesIndex = 1;
+        const gapsIndex = 2;
+        const planIndex = 3;
 
         final sections = <SphereSection>[
           SphereSection(
@@ -152,7 +167,8 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
               insight: insight,
               onUpdate: canEdit ? () => _update(profile) : null,
               onRequest: canRequest ? () => _request(profile) : null,
-              onSeeGaps: () => _page.currentState?.scrollToSection(1),
+              onSeeGaps: () =>
+                  _page.currentState?.scrollToSection(insight.gapCount > 0 ? gapsIndex : competenciesIndex),
             ),
           ),
           SphereSection(
@@ -164,6 +180,22 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
               onRequest: (row) => _request(profile, row),
               onOpenCompetency: _openCompetency,
             ),
+          ),
+          SphereSection(
+            label: 'Gaps',
+            child: _GapsSection(
+              insight: insight,
+              own: own,
+              canRequest: canRequest,
+              onRequest: (row) => _request(profile, row),
+              onPlan: own ? (gap) => _plan(profile, gap) : null,
+              onOpenPlans: () => _page.currentState?.scrollToSection(planIndex),
+              onOpenCompetency: _openCompetency,
+            ),
+          ),
+          SphereSection(
+            label: 'Plan',
+            child: TrainingPlanSection(viewer: user, employeeId: profile.id),
           ),
           SphereSection(label: 'Projects', child: _ProjectsSection(insight: insight)),
           SphereSection(
@@ -325,6 +357,7 @@ class _IdentityCard extends StatelessWidget {
             maxColumns: 3,
             minFieldWidth: 190,
             children: [
+              DetailItem(label: 'Division', value: employees.divisionNameOf(profile), icon: Icons.domain_rounded),
               DetailItem(label: 'Group', value: employees.groupNameOf(profile), icon: Icons.account_tree_outlined),
               DetailItem(label: 'Department', value: employees.departmentNameOf(profile), icon: Icons.apartment_rounded),
               DetailItem(label: 'Reporting manager', value: employees.managerLabel(profile), icon: Icons.supervisor_account_outlined),
@@ -545,15 +578,15 @@ class _CompetenciesSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
-          title: 'COMPETENCIES & GAPS',
-          subtitle: 'What ${insight.profile.firstName}\'s projects need from a '
-              '${RoleRepository.instance.nameOf(insight.profile.roleId)} next to what they have. '
-              'A competency several projects need is one row with the highest level.'
-              '${canRequest ? ' Ask HR for a level-up on any gap.' : ''}'
+          title: 'ACQUIRED COMPETENCIES',
+          subtitle: 'Each level with its history: when it was last confirmed, the hours acquired since '
+              'the previous confirmed level, the total from the starting point, and the hours the next '
+              'level needs under the policy. The timeline icon opens the full history.'
+              '${canRequest ? ' Raise a level-up with the hours acquired.' : ''}'
               '${isHrd ? ' HRD changes levels in Update profile.' : ''}',
         ),
         const SizedBox(height: 26),
-        CompetencyGapTable(
+        AcquiredCompetencyTable(
           insight: insight,
           onRequest: canRequest ? onRequest : null,
           onOpenCompetency: onOpenCompetency,
@@ -589,6 +622,55 @@ class _CompetenciesSection extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// ================================================================= gaps
+
+class _GapsSection extends StatelessWidget {
+  const _GapsSection({
+    required this.insight,
+    required this.own,
+    required this.canRequest,
+    required this.onRequest,
+    required this.onPlan,
+    required this.onOpenPlans,
+    required this.onOpenCompetency,
+  });
+
+  final EmployeeInsight insight;
+  final bool own;
+  final bool canRequest;
+  final ValueChanged<CompetencyRow> onRequest;
+  final ValueChanged<GapEntry>? onPlan;
+  final VoidCallback onOpenPlans;
+  final ValueChanged<Competency> onOpenCompetency;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = own ? 'your' : '${insight.profile.firstName}\'s';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionHeader(
+          title: 'SKILL GAPS',
+          subtitle: 'Current level vs the level each project needs from $name role '
+              '(${RoleRepository.instance.nameOf(insight.profile.roleId)}): one row per project that '
+              'reports the gap. The gap (−1, −2, −3…) updates as soon as a level is approved; not '
+              'acquired counts from below L0.'
+              '${canRequest ? ' Ask HR for a level-up from a row.' : ''}'
+              '${own ? ' Plan the training for a gap from its row.' : ''}',
+        ),
+        const SizedBox(height: 26),
+        EmployeeGapsPanel(
+          insight: insight,
+          onRequest: canRequest ? onRequest : null,
+          onPlan: onPlan,
+          onOpenPlans: onOpenPlans,
+          onOpenCompetency: onOpenCompetency,
         ),
       ],
     );
@@ -830,7 +912,7 @@ class _HistorySection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const PanelTitle('Profile changes', subtitle: 'Group, department, manager, designation, role, status.'),
+          const PanelTitle('Profile changes', subtitle: 'Division, group, department, manager, designation, role, status.'),
           const SizedBox(height: 14),
           if (changes.isEmpty)
             Text('No changes since onboarding.', style: HomeText.body(13.5, color: HomeColors.muted))
@@ -865,7 +947,7 @@ class _HistorySection extends StatelessWidget {
       children: [
         const SectionHeader(
           title: 'HISTORY',
-          subtitle: 'Moves between groups and departments, other profile changes and level-ups.',
+          subtitle: 'Moves between divisions, groups and departments, other profile changes and level-ups.',
         ),
         const SizedBox(height: 26),
         if (width >= 980)
@@ -948,7 +1030,8 @@ class _RequestLine extends StatelessWidget {
               Text('$name: ${request.isNewSkill ? 'new' : 'L${request.fromLevel}'} → L${request.toLevel}',
                   style: HomeText.body(13.5, weight: FontWeight.w700, color: HomeColors.ink)),
               Text(
-                'Raised ${dayMonthYear(request.raisedAt)} by ${request.raisedByName}'
+                'Raised ${dayMonthYear(request.raisedAt)} by ${request.raisedByName} · '
+                '${request.hours} h of ${request.requiredHours} h'
                 '${request.decidedAt == null ? '' : ' · ${request.status.label.toLowerCase()} ${dayMonthYear(request.decidedAt!)}'}'
                 '${request.decisionNote.isEmpty ? '' : ' · "${request.decisionNote}"'}',
                 style: HomeText.body(12.5, color: HomeColors.muted, height: 1.4),

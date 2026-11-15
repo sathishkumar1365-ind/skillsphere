@@ -53,8 +53,8 @@ class HomeNavBar extends StatelessWidget {
     final width = MediaQuery.sizeOf(context).width;
     // More links need more room; below the threshold they move into a menu.
     final extra = onOpenConsole == null ? 0 : 52;
-    final showLinks =
-        width >= (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900)) + extra;
+    final showLinks = width >=
+        (links.length > 6 ? 1200 : (links.length > 5 ? 1120 : (links.length > 4 ? 1040 : 900))) + extra;
     final hasConsole = onOpenConsole != null;
     // The settings icon needs 52px more: hide the brand name sooner, and
     // on very narrow screens drop the (not yet connected) search button.

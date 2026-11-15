@@ -18,7 +18,7 @@ enum ConsoleSection {
     'Profile Changes',
     'Changes',
     Icons.swap_horiz_rounded,
-    'Group and department moves (re-orgs, transfers) and other profile changes.',
+    'Division, group and department moves (re-orgs, transfers) and other profile changes.',
   ),
   approvals(
     'Approvals',
@@ -39,10 +39,10 @@ enum ConsoleSection {
     'Project roles such as Software Developer or Test Engineer.',
   ),
   structure(
-    'Groups & Departments',
-    'Groups',
+    'Org Structure',
+    'Structure',
     Icons.account_tree_outlined,
-    'Business groups and the departments inside them.',
+    'Divisions, the business groups inside them and their departments.',
   );
 
   const ConsoleSection(this.title, this.shortTitle, this.icon, this.blurb);

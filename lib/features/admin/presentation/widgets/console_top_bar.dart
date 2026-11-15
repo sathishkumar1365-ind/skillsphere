@@ -71,7 +71,10 @@ class ConsoleTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final select = onSelect;
-    final showLinks = links.isNotEmpty && select != null && width >= 140.0 * links.length + 420;
+    // Room the links need: each one is its label (~8.2px a character at
+    // 14px) plus 44px padding; the rest of the bar needs about 520px.
+    final linksWidth = links.fold<double>(0, (sum, l) => sum + l.length * 8.2 + 44);
+    final showLinks = links.isNotEmpty && select != null && width >= linksWidth + 520;
     final showBrand = width >= 560;
     // Brand and title use the same font size, so their baselines line up
     // (two sizes centred in one row sit on different baselines).

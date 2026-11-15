@@ -71,6 +71,7 @@ final List<Competency> sampleCompetencies = [
       CompetencyHolder('EMP-1012', 2),  // added for project gap samples
       CompetencyHolder('EMP-1024', 1),  // added for project gap samples
       CompetencyHolder('EMP-1026', 2),  // added for project gap samples
+      CompetencyHolder('EMP-1002', 1, verified: false), // self-assessed; gap sample (-1)
     ],
   ),
   Competency(

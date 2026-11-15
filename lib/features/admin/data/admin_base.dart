@@ -1,5 +1,5 @@
 // Shared helpers for the HRD console data (employees, projects, roles,
-// groups & departments, approvals).
+// divisions, groups & departments, approvals, training plans).
 //
 // Everything in lib/features/admin/data is TEMPORARY in-memory data, like the
 // competency library: it is lost on a page reload. Each repository says which

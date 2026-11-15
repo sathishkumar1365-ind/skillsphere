@@ -1,10 +1,16 @@
 // Level-up approvals. A Team Lead asks HR to raise a team member's level in
-// a competency (usually to close a skill gap for a project), with a note and
-// optional proof. HR approves (the level changes and is marked verified) or
-// rejects with a reason.
+// a competency (usually to close a skill gap for a project), with a note,
+// the HOURS acquired since the last confirmed level and optional proof. HR
+// approves (the level changes, is marked verified, and the hours and the
+// approval date go into the level history = "Last confirmed") or rejects
+// with a reason.
+//
+// Hours below the policy (LevelHoursPolicy) are shown to HR as a warning;
+// HR still decides.
 //
 // Spring Boot API later:
 //   POST /api/approvals/level-ups               (ADMIN; employee must be in the TL's department)
+//        {employeeId, competencyId, toLevel, hours, note, evidence}
 //   GET  /api/approvals/level-ups?status=&departmentId=&q=   (SUPER_ADMIN)
 //   POST /api/approvals/level-ups/{id}/approve  (SUPER_ADMIN) {comment}
 //   POST /api/approvals/level-ups/{id}/reject   (SUPER_ADMIN) {reason}
@@ -15,6 +21,8 @@ import 'package:flutter/foundation.dart';
 import '../../../core/auth/app_user.dart';
 import '../../competency/data/competency_models.dart';
 import '../../competency/data/competency_repository.dart';
+import '../../competency/data/level_hours_policy.dart';
+import '../../competency/data/level_progress.dart';
 import 'admin_base.dart';
 import 'admin_sample_data.dart';
 import 'employees.dart';
@@ -38,6 +46,8 @@ class LevelUpRequest {
     required this.raisedByName,
     required this.raisedAt,
     required this.note,
+    required this.hours,
+    this.requiredHours = 0,
     this.fromLevel,
     this.requiredLevel,
     this.projectIds = const [],
@@ -66,6 +76,12 @@ class LevelUpRequest {
   /// Why the TL thinks the level is reached.
   final String note;
 
+  /// Hours acquired since the last confirmed level (entered by the TL).
+  final int hours;
+
+  /// What the hours policy asked for this jump when the request was raised.
+  final int requiredHours;
+
   /// Proof: a link, or the name of a certificate on the profile.
   final String evidence;
   final String raisedById;
@@ -84,6 +100,12 @@ class LevelUpRequest {
   /// Steps up the scale: L1 → L3 is 2.
   int get jump => toLevel - (fromLevel ?? -1);
 
+  /// True when the TL's hours are below the policy.
+  bool get belowPolicy => hours < requiredHours;
+
+  /// Hours missing to meet the policy (0 when met).
+  int get hoursShort => belowPolicy ? requiredHours - hours : 0;
+
   LevelUpRequest decide({
     required ApprovalStatus status,
     required String by,
@@ -98,6 +120,8 @@ class LevelUpRequest {
         raisedByName: raisedByName,
         raisedAt: raisedAt,
         note: this.note,
+        hours: hours,
+        requiredHours: requiredHours,
         fromLevel: fromLevel,
         requiredLevel: requiredLevel,
         projectIds: projectIds,
@@ -117,6 +141,24 @@ class ApprovalRules {
   static const int evidenceMax = 200;
   static const int reasonMin = 5;
   static const int reasonMax = 300;
+
+  /// Hours since the last confirmed level: 1 to this many.
+  static const int hoursMax = 10000;
+
+  /// Reads the hours field: "120", "120 h", "1,200". Null if it isn't a number.
+  static int? parseHours(String text) {
+    final clean = text.trim().toLowerCase().replaceAll(RegExp(r'[\s,]|hours?|hrs?|h$'), '');
+    if (clean.isEmpty) return null;
+    return int.tryParse(clean);
+  }
+
+  /// Why [hours] can't be used, or null.
+  static String? hoursProblem(int? hours) {
+    if (hours == null) return 'Enter the hours acquired since the last confirmed level (a whole number).';
+    if (hours < 1) return 'Enter at least 1 hour.';
+    if (hours > hoursMax) return 'Enter at most $hoursMax hours.';
+    return null;
+  }
 }
 
 class ApprovalRepository {
@@ -151,6 +193,7 @@ class ApprovalRepository {
     required String competencyId,
     required int toLevel,
     required String note,
+    required int hours,
     String evidence = '',
     int? requiredLevel,
     List<String> projectIds = const [],
@@ -177,6 +220,8 @@ class ApprovalRepository {
     if (cleanNote.length > ApprovalRules.noteMax) {
       throw const AdminException('Keep the note under ${ApprovalRules.noteMax} characters.');
     }
+    final hoursIssue = ApprovalRules.hoursProblem(hours);
+    if (hoursIssue != null) throw AdminException(hoursIssue);
     if (evidence.trim().length > ApprovalRules.evidenceMax) {
       throw const AdminException('Keep the proof under ${ApprovalRules.evidenceMax} characters.');
     }
@@ -195,6 +240,8 @@ class ApprovalRepository {
       requiredLevel: requiredLevel,
       projectIds: List<String>.unmodifiable(projectIds),
       note: cleanNote,
+      hours: hours,
+      requiredHours: LevelHoursPolicy.instance.hoursBetween(competency.category, current, toLevel),
       evidence: evidence.trim(),
       raisedById: by.id,
       raisedByName: by.name,
@@ -205,7 +252,8 @@ class ApprovalRepository {
   }
 
   /// HR approves: the employee's level becomes [LevelUpRequest.toLevel]
-  /// (verified). Several requests can be approved at once.
+  /// (verified); the TL's hours and today's date go into the level history
+  /// ("Last confirmed"). Several requests can be approved at once.
   Future<int> approve({
     required AppUser by,
     required List<LevelUpRequest> items,
@@ -230,6 +278,9 @@ class ApprovalRepository {
           by: by,
           employeeId: r.employeeId,
           levels: {r.competencyId: level},
+          source: LevelChangeSource.approval,
+          hours: {r.competencyId: r.hours},
+          requestId: r.id,
         );
       }
       next.add(r.decide(status: ApprovalStatus.approved, by: by.name, note: comment.trim()));

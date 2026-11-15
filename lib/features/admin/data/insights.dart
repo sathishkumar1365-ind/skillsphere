@@ -10,6 +10,10 @@
 // * Readiness = share of the required levels reached, weighted by level:
 //   Σ min(held + 1, required + 1) / Σ (required + 1). Holding L2 of a
 //   required L4 counts 3/5; not holding it counts 0.
+// * Gap per project (the Gaps table): current level − the level THAT
+//   project needs, e.g. −1, −2, −3. Not acquired counts from below L0, so a
+//   required L2 that isn't held is −3 (the same −(required + 1) that
+//   readiness uses).
 //
 // The Spring Boot API should calculate the same thing server-side for the
 // dashboards (GET /api/employees/{id}/gaps).
@@ -19,7 +23,10 @@ import 'package:flutter/foundation.dart';
 import '../../additional_competency/data/additional_competency_repository.dart';
 import '../../competency/data/competency_models.dart';
 import '../../competency/data/competency_repository.dart';
+import '../../competency/data/level_hours_policy.dart';
+import '../../competency/data/level_progress.dart';
 import '../../organization/data/org_models.dart';
+import '../../training_plan/data/training_plans.dart';
 import 'approvals.dart';
 import 'employees.dart';
 import 'job_roles.dart';
@@ -96,6 +103,31 @@ class CompetencyRow {
   }
 }
 
+/// One gap reported by one project: the Gaps table has a row per project,
+/// so the same competency can appear with different required levels.
+class GapEntry {
+  const GapEntry({required this.row, required this.source});
+
+  final CompetencyRow row;
+  final RequirementSource source;
+
+  Competency get competency => row.competency;
+
+  /// Null when the competency isn't held.
+  int? get currentLevel => row.acquiredLevel;
+  int get requiredLevel => source.level;
+
+  /// Levels short, positive: required L4, held L2 → 2; not held → required + 1.
+  int get size {
+    final held = currentLevel;
+    if (held == null) return requiredLevel + 1;
+    return held >= requiredLevel ? 0 : requiredLevel - held;
+  }
+
+  /// As shown in the table: −1, −2, −3…
+  int get value => -size;
+}
+
 class EmployeeInsight {
   const EmployeeInsight({
     required this.profile,
@@ -120,6 +152,23 @@ class EmployeeInsight {
   int get acquiredCount => rows.where((r) => r.holder != null).length;
 
   int get pendingCount => rows.where((r) => r.pending != null).length;
+
+  /// Every (competency, project) pair whose required level isn't reached,
+  /// biggest gap first.
+  List<GapEntry> get gapEntries {
+    final list = <GapEntry>[
+      for (final r in rows)
+        if (r.state.isGap)
+          for (final s in r.sources)
+            if (GapEntry(row: r, source: s).size > 0) GapEntry(row: r, source: s),
+    ]..sort((a, b) {
+        final bySize = b.size.compareTo(a.size);
+        if (bySize != 0) return bySize;
+        final byName = a.competency.name.toLowerCase().compareTo(b.competency.name.toLowerCase());
+        return byName != 0 ? byName : a.source.project.code.compareTo(b.source.project.code);
+      });
+    return list;
+  }
 
   /// 0–100, or null when no project needs anything from this employee.
   int? get readiness {
@@ -150,11 +199,15 @@ class Insights {
     EmployeeRepository.instance.changes,
     CompetencyRepository.instance.competencies,
     ProjectRepository.instance.projects,
+    OrgStructureRepository.instance.divisions,
     OrgStructureRepository.instance.groups,
     OrgStructureRepository.instance.departments,
     RoleRepository.instance.roles,
     ApprovalRepository.instance.requests,
     AdditionalCompetencyRepository.instance.entries,
+    LevelProgressRepository.instance.confirmations,
+    LevelHoursPolicy.instance.hours,
+    TrainingPlanRepository.instance.plans,
   ]);
 
   static EmployeeInsight of(EmployeeProfile profile) {

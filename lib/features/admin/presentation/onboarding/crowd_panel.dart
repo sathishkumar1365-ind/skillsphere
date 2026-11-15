@@ -10,7 +10,7 @@ import '../../data/org_structure.dart';
 import '../widgets/admin_common.dart';
 
 /// Connection settings for Atlassian Crowd (shared by Onboarding and
-/// Groups & Departments).
+/// Org Structure).
 class CrowdConnectionPanel extends StatefulWidget {
   const CrowdConnectionPanel({super.key, required this.user});
 
@@ -26,6 +26,7 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
   final _password = TextEditingController();
   final _group = TextEditingController(text: 'mobis-employees');
   final _attribute = TextEditingController(text: 'employeeNumber');
+  final _divisionPrefix = TextEditingController(text: 'div-');
   final _groupPrefix = TextEditingController(text: 'grp-');
   final _departmentPrefix = TextEditingController(text: 'dept-');
   CrowdSchedule _schedule = CrowdSchedule.manual;
@@ -51,6 +52,7 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
     _app.text = s.applicationName;
     _group.text = s.userGroup;
     _attribute.text = s.employeeIdAttribute;
+    _divisionPrefix.text = s.divisionPrefix;
     _groupPrefix.text = s.groupPrefix;
     _departmentPrefix.text = s.departmentPrefix;
     _schedule = s.schedule;
@@ -59,7 +61,7 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
 
   @override
   void dispose() {
-    for (final c in [_url, _app, _password, _group, _attribute, _groupPrefix, _departmentPrefix]) {
+    for (final c in [_url, _app, _password, _group, _attribute, _divisionPrefix, _groupPrefix, _departmentPrefix]) {
       c.dispose();
     }
     super.dispose();
@@ -71,6 +73,7 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
         passwordSaved: _crowd.settings.value?.passwordSaved ?? false,
         userGroup: _group.text,
         employeeIdAttribute: _attribute.text,
+        divisionPrefix: _divisionPrefix.text,
         groupPrefix: _groupPrefix.text,
         departmentPrefix: _departmentPrefix.text,
         schedule: _schedule,
@@ -152,8 +155,8 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
                     DetailItem(label: 'Employees group', value: saved.userGroup, icon: Icons.groups_outlined),
                     DetailItem(label: 'Employee ID attribute', value: saved.employeeIdAttribute, icon: Icons.badge_outlined),
                     DetailItem(
-                      label: 'Group / department prefixes',
-                      value: '${saved.groupPrefix}…  /  ${saved.departmentPrefix}…',
+                      label: 'Division / group / department prefixes',
+                      value: '${saved.divisionPrefix}…  /  ${saved.groupPrefix}…  /  ${saved.departmentPrefix}…',
                       icon: Icons.account_tree_outlined,
                     ),
                     DetailItem(label: 'Automatic sync', value: saved.schedule.label, icon: Icons.schedule_rounded),
@@ -232,9 +235,17 @@ class _CrowdConnectionPanelState extends State<CrowdConnectionPanel> {
                       ),
                     ),
                     LabeledField(
-                      label: 'Prefixes: groups / departments',
+                      label: 'Prefixes: divisions / groups / departments',
                       child: Row(
                         children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _divisionPrefix,
+                              style: adminInputStyle,
+                              decoration: adminDecoration(hint: 'div-'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: TextField(
                               controller: _groupPrefix,
@@ -594,7 +605,7 @@ class _ChangeTile extends StatelessWidget {
                     else ...[
                       Text(
                         'No department matches the Crowd group "${u.groups.where((g) => g != 'mobis-employees').join(', ')}". '
-                        'Choose one (or add it under Groups & Departments › Crowd sync):',
+                        'Choose one (or add it under Org Structure › Crowd sync):',
                         style: HomeText.body(12.5, weight: FontWeight.w600, color: HomeColors.orangeText, height: 1.4),
                       ),
                       const SizedBox(height: 6),

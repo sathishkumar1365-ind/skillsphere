@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import '../../../../core/auth/app_user.dart';
 import '../../../competency/data/competency_models.dart';
 import '../../../competency/data/competency_repository.dart';
+import '../../../competency/data/level_hours_policy.dart';
+import '../../../competency/data/level_progress.dart';
 import '../../../competency/presentation/widgets/competency_common.dart';
 import '../../../home/presentation/home_theme.dart';
 import '../../../home/presentation/widgets/home_common.dart';
+import '../../../training_plan/data/training_plans.dart';
 import '../../data/admin_base.dart';
 import '../../data/approvals.dart';
 import '../../data/employees.dart';
@@ -15,6 +18,10 @@ import '../widgets/admin_common.dart';
 /// A Team Lead asks HR to raise [employee]'s level. With [row] the
 /// competency (and the level its projects need) is filled in; without it
 /// the TL chooses any competency from the library.
+///
+/// The TL also enters the hours acquired since the last confirmed level;
+/// they are compared with the hours policy (a warning, HR decides) and
+/// stored in the level history when HR approves.
 ///
 /// Returns the request when it was sent.
 Future<LevelUpRequest?> showRequestLevelUp({
@@ -44,6 +51,7 @@ class _RequestForm extends StatefulWidget {
 class _RequestFormState extends State<_RequestForm> {
   final _note = TextEditingController();
   final _evidence = TextEditingController();
+  final _hours = TextEditingController();
   String? _competencyId;
   int? _target;
   bool _saving = false;
@@ -60,6 +68,7 @@ class _RequestFormState extends State<_RequestForm> {
   void dispose() {
     _note.dispose();
     _evidence.dispose();
+    _hours.dispose();
     super.dispose();
   }
 
@@ -92,6 +101,12 @@ class _RequestFormState extends State<_RequestForm> {
       setState(() => _error = 'Choose the competency and the new level.');
       return;
     }
+    final hours = ApprovalRules.parseHours(_hours.text);
+    final hoursIssue = ApprovalRules.hoursProblem(hours);
+    if (hoursIssue != null) {
+      setState(() => _error = hoursIssue);
+      return;
+    }
     setState(() {
       _saving = true;
       _error = null;
@@ -105,6 +120,7 @@ class _RequestFormState extends State<_RequestForm> {
         competencyId: id,
         toLevel: target,
         note: _note.text,
+        hours: hours!,
         evidence: _evidence.text,
         requiredLevel: row?.requiredLevel,
         projectIds: [for (final s in row?.sources ?? const <RequirementSource>[]) s.project.id],
@@ -200,6 +216,15 @@ class _RequestFormState extends State<_RequestForm> {
                 const SizedBox(height: 8),
                 Text(competency.levelDescription(_target!),
                     style: HomeText.body(13, color: HomeColors.muted, height: 1.45)),
+                const SizedBox(height: 16),
+                _HoursField(
+                  controller: _hours,
+                  employeeId: widget.employee.id,
+                  competency: competency,
+                  from: current,
+                  to: _target!,
+                  onChanged: () => setState(() => _error = null),
+                ),
               ],
             ],
             const SizedBox(height: 16),
@@ -305,6 +330,88 @@ class _Fact extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Hours acquired since the last confirmed level, with the policy for the
+/// jump, the last confirmed date and a hint from the employee's training
+/// plans.
+class _HoursField extends StatelessWidget {
+  const _HoursField({
+    required this.controller,
+    required this.employeeId,
+    required this.competency,
+    required this.from,
+    required this.to,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final String employeeId;
+  final Competency competency;
+  final int? from;
+  final int to;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final policy = LevelHoursPolicy.instance.hoursBetween(competency.category, from, to);
+    final progress = LevelProgressRepository.instance.progressOf(employeeId, competency.id);
+    final last = progress.lastConfirmation;
+    final entered = ApprovalRules.parseHours(controller.text);
+    // Training logged since the last confirmation (a hint for the TL).
+    final since = last?.confirmedOn;
+    final trained = TrainingPlanRepository.instance
+        .forCompetency(employeeId, competency.id)
+        .where((p) => since == null || !p.targetDate.isBefore(since))
+        .fold<int>(0, (sum, p) => sum + p.completedHours);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _Fact(
+              label: 'Last confirmed',
+              value: last == null ? 'Not yet' : '${dayMonthYear(last.confirmedOn)} (L${last.toLevel})',
+            ),
+            _Fact(
+              label: 'Policy',
+              value: '${hoursLabel(policy)} · ${from == null ? 'New' : 'L$from'} → L$to',
+            ),
+            if (progress.totalHours > 0) _Fact(label: 'Total so far', value: hoursLabel(progress.totalHours)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        LabeledField(
+          label: 'Hours acquired since the last confirmed level',
+          required: true,
+          child: TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            style: adminInputStyle,
+            onChanged: (_) => onChanged(),
+            decoration: adminDecoration(
+              hint: 'e.g. $policy',
+              helper: trained > 0
+                  ? 'Training plans show ${hoursLabel(trained)} completed in this period.'
+                  : 'Learning, project practice and training since ${last == null ? 'they started' : dayMonthYear(last.confirmedOn)}.',
+            ).copyWith(suffixText: 'h'),
+          ),
+        ),
+        if (entered != null && entered < policy) ...[
+          const SizedBox(height: 8),
+          InfoNote(
+            tone: NoteTone.warning,
+            icon: Icons.schedule_rounded,
+            text: '${hoursLabel(policy - entered)} below the ${competency.category.label.toLowerCase()} '
+                'policy (${hoursLabel(entered)} of ${hoursLabel(policy)}). You can still send it; HR decides.',
+          ),
+        ],
+      ],
     );
   }
 }

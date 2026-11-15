@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/auth/app_user.dart';
 import '../../../competency/data/competency_models.dart';
 import '../../../competency/data/competency_repository.dart';
+import '../../../competency/data/level_hours_policy.dart';
+import '../../../competency/data/level_progress.dart';
 import '../../../competency/presentation/widgets/competency_common.dart';
 import '../../../home/presentation/home_theme.dart';
 import '../../../home/presentation/widgets/home_common.dart';
@@ -18,6 +20,7 @@ import '../../data/job_roles.dart';
 import '../../data/org_structure.dart';
 import '../../data/projects.dart';
 import '../widgets/admin_common.dart';
+import 'hours_policy_panel.dart';
 
 enum _StatusFilter {
   pending('Pending'),
@@ -36,9 +39,11 @@ enum _StatusFilter {
       };
 }
 
-/// Console › Approvals: level-ups raised by Team Leads to close skill gaps.
-/// HR approves (the level changes and is marked verified) or rejects with
-/// a reason; approved and rejected ones stay filterable.
+/// Console › Approvals: level-ups raised by Team Leads to close skill gaps,
+/// with the hours acquired since the last confirmed level next to the hours
+/// policy. HR approves (the level changes, is marked verified, and the
+/// hours + today's date go into the level history) or rejects with a
+/// reason; approved and rejected ones stay filterable.
 class ApprovalsView extends StatefulWidget {
   const ApprovalsView({super.key, required this.user, required this.onOpenEmployee});
 
@@ -147,6 +152,7 @@ class _ApprovalsViewState extends State<ApprovalsView> {
         _approvals.requests,
         employees.employees,
         CompetencyRepository.instance.competencies,
+        LevelProgressRepository.instance.confirmations,
       ]),
       builder: (context, _) {
         final now = DateTime.now();
@@ -159,6 +165,7 @@ class _ApprovalsViewState extends State<ApprovalsView> {
         final rejectedMonth = all
             .where((r) => r.status == ApprovalStatus.rejected && (r.decidedAt?.isAfter(monthAgo) ?? false))
             .length;
+        final belowPolicy = pending.where((r) => r.belowPolicy).length;
         final avgWait = pending.isEmpty
             ? 0
             : (pending.fold<int>(0, (s, r) => s + now.difference(r.raisedAt).inDays) / pending.length).round();
@@ -190,10 +197,16 @@ class _ApprovalsViewState extends State<ApprovalsView> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SectionHeader(
+            SectionHeader(
               title: 'APPROVALS',
-              subtitle: 'Level-ups that close skill gaps, raised by Team Leads. Approving changes the '
-                  'employee\'s level right away (marked verified); rejecting sends your reason back.',
+              subtitle: 'Level-ups that close skill gaps, raised by Team Leads with the hours acquired '
+                  'since the last confirmed level. Approving changes the level right away (verified, '
+                  'confirmed today); rejecting sends your reason back.',
+              trailing: PillButton(
+                label: 'Hours policy',
+                variant: PillVariant.outline,
+                onPressed: () => showHoursPolicy(context: context, user: widget.user),
+              ),
             ),
             const SizedBox(height: 24),
             EqualHeightGrid(
@@ -202,8 +215,8 @@ class _ApprovalsViewState extends State<ApprovalsView> {
               runSpacing: 14,
               children: [
                 KpiCard(value: pending.length, label: 'Waiting for you', dark: true),
-                KpiCard(value: approvedMonth, label: 'Approved', caption: 'Last 30 days'),
-                KpiCard(value: rejectedMonth, label: 'Rejected', caption: 'Last 30 days'),
+                KpiCard(value: belowPolicy, label: 'Below hours policy', caption: 'Of the pending'),
+                KpiCard(value: approvedMonth, label: 'Approved', caption: 'Last 30 days · $rejectedMonth rejected'),
                 KpiCard(value: avgWait, label: 'Days waiting', caption: 'Average for pending'),
               ],
             ),
@@ -468,6 +481,7 @@ class _RequestCard extends StatelessWidget {
                     ],
                   ),
                 _LevelJump(from: r.fromLevel, to: r.toLevel),
+                _HoursPill(request: r),
                 if (r.requiredLevel != null)
                   StatusPill(
                     label: 'Projects need L${r.requiredLevel}',
@@ -504,6 +518,10 @@ class _RequestCard extends StatelessWidget {
               ],
             ),
           ),
+          if (r.isPending) ...[
+            const SizedBox(height: 10),
+            _HoursNote(request: r),
+          ],
           if (r.isPending && r.jump > 1) ...[
             const SizedBox(height: 10),
             InfoNote(
@@ -552,6 +570,64 @@ class _RequestCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// "420 h of 640 h" – orange when below the policy (with an icon and text,
+/// never colour alone).
+class _HoursPill extends StatelessWidget {
+  const _HoursPill({required this.request});
+
+  final LevelUpRequest request;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = request;
+    final below = r.belowPolicy;
+    return Tooltip(
+      message: 'Hours acquired since the last confirmed level, entered by ${r.raisedByName}. '
+          'Policy for this jump: ${hoursLabel(r.requiredHours)}.',
+      child: StatusPill(
+        label: '${hoursLabel(r.hours)} of ${hoursLabel(r.requiredHours)}',
+        icon: below ? Icons.schedule_rounded : Icons.check_circle_outline_rounded,
+        background: below ? HomeColors.orangeTint : OrgColors.goodTint,
+        foreground: below ? HomeColors.orangeText : OrgColors.good,
+      ),
+    );
+  }
+}
+
+/// Last confirmed date and hours vs policy, for HR's decision.
+class _HoursNote extends StatelessWidget {
+  const _HoursNote({required this.request});
+
+  final LevelUpRequest request;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = request;
+    final progress = LevelProgressRepository.instance.progressOf(r.employeeId, r.competencyId);
+    final last = progress.lastConfirmation;
+    final since = last == null
+        ? 'No confirmed level yet.'
+        : 'Last confirmed ${dayMonthYear(last.confirmedOn)} at L${last.toLevel} '
+            '(${relativeDays(last.confirmedOn)}).';
+    final total = progress.totalHours;
+    if (r.belowPolicy) {
+      return InfoNote(
+        tone: NoteTone.warning,
+        icon: Icons.schedule_rounded,
+        text: '$since ${hoursLabel(r.hours)} since then – ${hoursLabel(r.hoursShort)} below the policy of '
+            '${hoursLabel(r.requiredHours)} for this jump. You can still approve.'
+            '${total > 0 ? ' ${hoursLabel(total)} in total before this request.' : ''}',
+      );
+    }
+    return InfoNote(
+      tone: NoteTone.success,
+      icon: Icons.schedule_rounded,
+      text: '$since ${hoursLabel(r.hours)} since then meets the policy of ${hoursLabel(r.requiredHours)}.'
+          '${total > 0 ? ' ${hoursLabel(total)} in total before this request.' : ''}',
     );
   }
 }
