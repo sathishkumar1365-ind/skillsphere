@@ -20,6 +20,7 @@ import 'onboarding/onboarding_view.dart';
 import 'projects/projects_view.dart';
 import 'roles/roles_view.dart';
 import 'structure/structure_view.dart';
+import '../../reports/presentation/reports_view.dart';
 import 'widgets/admin_common.dart';
 import 'widgets/console_top_bar.dart';
 
@@ -27,7 +28,7 @@ import 'widgets/console_top_bar.dart';
 /// dashboard. HRD team (Super Admin) only.
 ///
 /// A side menu (a strip of pills on narrow screens) switches between the
-/// seven options. Each option keeps its state (typed form text, filters,
+/// eight options. Each option keeps its state (typed form text, filters,
 /// scroll position) while another one is open, and turns in in 3D when
 /// shown.
 class AdminConsolePage extends StatefulWidget {
@@ -81,6 +82,7 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
         ConsoleSection.onboarding =>
           OnboardingView(user: widget.user, onOpenEmployee: _openEmployee, onNavigate: _select),
         ConsoleSection.employees => AllEmployeesView(user: widget.user, onOpenEmployee: _openEmployee),
+        ConsoleSection.reports => ReportsView(user: widget.user, onOpenEmployee: _openEmployee),
         ConsoleSection.changes => ProfileChangesView(user: widget.user, onOpenEmployee: _openEmployee),
         ConsoleSection.approvals => ApprovalsView(user: widget.user, onOpenEmployee: _openEmployee),
         ConsoleSection.projects => ProjectsView(user: widget.user, onOpenEmployee: _openEmployee),
@@ -141,43 +143,46 @@ class _AdminConsolePageState extends State<AdminConsolePage> {
           ),
           const Positioned.fill(child: DriftingClouds()),
           SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: EdgeInsets.fromLTRB(inset, ConsoleFrame.topGap, inset, wide ? 20 : 12),
-                  child: ConsoleTopBar(
-                    title: wide ? 'HRD Console' : 'HRD Console · ${_active.shortTitle}',
-                    user: user,
-                    backLabel: 'Back to dashboard',
-                    onBack: () => Navigator.of(context).maybePop(),
-                    onProfile: hasOwnProfile ? _openOwnProfile : null,
-                    onLogout: widget.onLogout,
-                  ),
-                ),
-                if (!wide)
+            // Below 320px the console scrolls sideways instead of breaking.
+            child: MinWidthBox(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _MenuStrip(active: _active, onSelect: _select, horizontalPadding: inset),
+                    padding: EdgeInsets.fromLTRB(inset, ConsoleFrame.topGap, inset, wide ? 20 : 12),
+                    child: ConsoleTopBar(
+                      title: wide ? 'HRD Console' : 'HRD Console · ${_active.shortTitle}',
+                      user: user,
+                      backLabel: 'Back to dashboard',
+                      onBack: () => Navigator.of(context).maybePop(),
+                      onProfile: hasOwnProfile ? _openOwnProfile : null,
+                      onLogout: widget.onLogout,
+                    ),
                   ),
-                Expanded(
-                  child: wide
-                      ? Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Padding(
-                              padding: EdgeInsets.fromLTRB(inset, 0, 0, 24),
-                              child: SizedBox(
-                                width: _menuWidth,
-                                child: _SideMenu(user: user, active: _active, onSelect: _select),
+                  if (!wide)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _MenuStrip(active: _active, onSelect: _select, horizontalPadding: inset),
+                    ),
+                  Expanded(
+                    child: wide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Padding(
+                                padding: EdgeInsets.fromLTRB(inset, 0, 0, 24),
+                                child: SizedBox(
+                                  width: _menuWidth,
+                                  child: _SideMenu(user: user, active: _active, onSelect: _select),
+                                ),
                               ),
-                            ),
-                            Expanded(child: content),
-                          ],
-                        )
-                      : content,
-                ),
-              ],
+                              Expanded(child: content),
+                            ],
+                          )
+                        : content,
+                  ),
+                ],
+              ),
             ),
           ),
         ],

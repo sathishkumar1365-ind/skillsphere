@@ -190,6 +190,57 @@ class EmployeeInsight {
   int get displayReadiness => readiness ?? profile.baselineReadiness ?? 0;
 }
 
+/// One competency a project needs from one employee (their role), with
+/// the level they hold.
+class FitNeed {
+  const FitNeed(this.competency, this.requiredLevel, this.heldLevel);
+
+  final Competency competency;
+  final int requiredLevel;
+
+  /// Null when not held.
+  final int? heldLevel;
+
+  bool get met {
+    final held = heldLevel;
+    return held != null && held >= requiredLevel;
+  }
+
+  /// Levels short (not held counts from below L0, like the Gaps table).
+  int get size {
+    final held = heldLevel;
+    if (held == null) return requiredLevel + 1;
+    return held >= requiredLevel ? 0 : requiredLevel - held;
+  }
+}
+
+/// How well one employee fits one project: what the project needs from
+/// their role against the levels they hold. Shown before allocating.
+class ProjectFit {
+  const ProjectFit({required this.project, required this.needs});
+
+  final ProjectRecord project;
+
+  /// Biggest gap first.
+  final List<FitNeed> needs;
+
+  List<FitNeed> get gaps => needs.where((n) => !n.met).toList();
+
+  int get gapCount => needs.where((n) => !n.met).length;
+
+  /// 0–100, level-weighted like readiness; 100 when nothing is needed.
+  int get percent {
+    var reached = 0;
+    var needed = 0;
+    for (final n in needs) {
+      needed += n.requiredLevel + 1;
+      final held = n.heldLevel;
+      if (held != null) reached += held >= n.requiredLevel ? n.requiredLevel + 1 : held + 1;
+    }
+    return needed == 0 ? 100 : (reached * 100 / needed).round();
+  }
+}
+
 class Insights {
   Insights._();
 
@@ -199,6 +250,7 @@ class Insights {
     EmployeeRepository.instance.changes,
     CompetencyRepository.instance.competencies,
     ProjectRepository.instance.projects,
+    ProjectRepository.instance.allocations,
     OrgStructureRepository.instance.divisions,
     OrgStructureRepository.instance.groups,
     OrgStructureRepository.instance.departments,
@@ -300,6 +352,27 @@ class Insights {
         .toList()
       ..sort((a, b) => a.id.compareTo(b.id));
     return list;
+  }
+
+  /// What [project] needs from [profile]'s role (a competency listed for
+  /// everyone AND for the role counts once, at the higher level) against the
+  /// levels they hold.
+  static ProjectFit fit(EmployeeProfile profile, ProjectRecord project) {
+    final competencies = CompetencyRepository.instance;
+    final required = <String, int>{};
+    for (final r in project.requirementsFor(profile.roleId)) {
+      final current = required[r.competencyId];
+      if (current == null || r.level > current) required[r.competencyId] = r.level;
+    }
+    final needs = <FitNeed>[
+      for (final entry in required.entries)
+        if (competencies.byId(entry.key) case final Competency c)
+          FitNeed(c, entry.value, competencies.holderOf(c.id, profile.id)?.level),
+    ]..sort((a, b) {
+        final bySize = b.size.compareTo(a.size);
+        return bySize != 0 ? bySize : a.competency.name.toLowerCase().compareTo(b.competency.name.toLowerCase());
+      });
+    return ProjectFit(project: project, needs: List<FitNeed>.unmodifiable(needs));
   }
 
   /// How well a project's team covers what it needs (0–100), level-weighted

@@ -9,6 +9,14 @@
 //   POST /api/projects (SUPER_ADMIN)   POST /api/projects/bulk (SUPER_ADMIN)
 //   PUT  /api/projects/{id} (SUPER_ADMIN)
 //   PUT  /api/employees/{id}/projects (SUPER_ADMIN, or ADMIN for own department)
+//   POST /api/projects/{id}/allocations   {employeeIds, note}  (bulk allocate)
+//   POST /api/projects/{id}/releases      {employeeIds, note}  (bulk release)
+//   GET  /api/employees/{id}/allocations  (allocation history)
+//
+// Allocation rules (the API must enforce the same): HRD can allocate any
+// active employee; a Team Lead only active people of their OWN department,
+// not themselves (same rule as Update profile). Completed projects can't
+// take new people, and their member lists are never changed.
 
 import 'package:flutter/foundation.dart';
 
@@ -195,6 +203,68 @@ class ProjectRules {
 
   /// "PAY-MIG", "THR_2026", "P1042".
   static bool isValidCode(String code) => RegExp(r'^[A-Za-z0-9][A-Za-z0-9_\-]{0,19}$').hasMatch(code);
+
+  /// Longest note kept with an allocation.
+  static const int allocationNoteMax = 200;
+}
+
+enum AllocationAction {
+  allocated('Allocated'),
+  released('Released');
+
+  const AllocationAction(this.label);
+  final String label;
+}
+
+/// One allocation change: [employeeId] put on (or taken off) [projectId].
+class ProjectAllocation {
+  const ProjectAllocation({
+    required this.id,
+    required this.projectId,
+    required this.employeeId,
+    required this.action,
+    required this.byId,
+    required this.byName,
+    required this.at,
+    this.note = '',
+    this.batchSize = 1,
+  });
+
+  /// e.g. "ALC-0007".
+  final String id;
+  final String projectId;
+  final String employeeId;
+  final AllocationAction action;
+  final String byId;
+  final String byName;
+  final DateTime at;
+  final String note;
+
+  /// How many people the same action covered (bulk allocation).
+  final int batchSize;
+}
+
+/// What a bulk allocate / release did, by employee id.
+class AllocationResult {
+  const AllocationResult({
+    required this.project,
+    required this.changed,
+    required this.unchanged,
+    required this.notAllowed,
+  });
+
+  final ProjectRecord project;
+
+  /// Allocated (or released) now.
+  final List<String> changed;
+
+  /// Already on the project (allocate) or not on it (release).
+  final List<String> unchanged;
+
+  /// Outside the user's rights (other department, inactive, themselves).
+  final List<String> notAllowed;
+
+  int get count => changed.length;
 }
 
 class ProjectRepository {
@@ -364,35 +434,200 @@ class ProjectRepository {
     return updated;
   }
 
-  /// Puts [employeeId] on exactly [projectIds] (adds and removes them from
-  /// team lists). HRD for anyone; a Team Lead for their own department.
-  void setEmployeeProjects({
+  // ------------------------------------------------------- allocation
+
+  /// Every allocation change made in SkillSphere, newest first. (Sample
+  /// memberships have no entry: they came from the old system.)
+  final ValueNotifier<List<ProjectAllocation>> allocations =
+      ValueNotifier<List<ProjectAllocation>>(const <ProjectAllocation>[]);
+
+  /// Projects people can be allocated to (not completed), by name.
+  List<ProjectRecord> get openProjects =>
+      projects.value.where((p) => p.status != ProjectStatus.completed).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+  /// Number of projects (not completed) [employeeId] is allocated to.
+  int projectCountFor(String employeeId) =>
+      projects.value.where((p) => p.status != ProjectStatus.completed && p.memberIds.contains(employeeId)).length;
+
+  /// HRD: any active employee. Team Lead: active people of their own
+  /// department, not themselves.
+  bool canAllocate(AppUser user, EmployeeProfile employee) =>
+      employee.isActive && EmployeeRepository.instance.canEdit(user, employee);
+
+  /// Releasing also works for people who have left (inactive).
+  bool canRelease(AppUser user, EmployeeProfile employee) => EmployeeRepository.instance.canEdit(user, employee);
+
+  /// The latest allocation change for this person on this project, if it
+  /// was made in SkillSphere.
+  ProjectAllocation? lastAllocation(String projectId, String employeeId) {
+    for (final a in allocations.value) {
+      if (a.projectId == projectId && a.employeeId == employeeId) return a;
+    }
+    return null;
+  }
+
+  /// Allocation history of one employee, newest first.
+  List<ProjectAllocation> allocationsFor(String employeeId) =>
+      allocations.value.where((a) => a.employeeId == employeeId).toList();
+
+  /// Puts [employeeId] on exactly [projectIds] among the open projects
+  /// (completed projects are never changed). HRD for anyone; a Team Lead for
+  /// their own department. Returns how many were added and released.
+  ({int added, int released}) setEmployeeProjects({
     required AppUser by,
     required String employeeId,
     required Set<String> projectIds,
+    String note = '',
   }) {
     final employee = EmployeeRepository.instance.byId(employeeId);
     if (employee == null) throw const AdminException('This employee no longer exists.');
     if (!EmployeeRepository.instance.canEdit(by, employee)) {
       throw const AdminException('You can only change projects for your own department.');
     }
-    var changed = false;
+    final added = <String>[];
+    final released = <String>[];
     final next = <ProjectRecord>[];
     for (final p in projects.value) {
       final isMember = p.memberIds.contains(employeeId);
       final shouldBe = projectIds.contains(p.id);
-      if (isMember == shouldBe) {
+      if (isMember == shouldBe || p.status == ProjectStatus.completed) {
         next.add(p);
         continue;
       }
-      changed = true;
+      if (shouldBe && !employee.isActive) {
+        throw AdminException('${employee.name} is inactive and can\'t be allocated to projects.');
+      }
+      (shouldBe ? added : released).add(p.id);
       next.add(p.copyWith(
         memberIds: List<String>.unmodifiable(shouldBe
             ? [...p.memberIds, employeeId]
             : p.memberIds.where((id) => id != employeeId)),
       ));
     }
-    if (changed) projects.value = List<ProjectRecord>.unmodifiable(next);
+    if (added.isEmpty && released.isEmpty) return (added: 0, released: 0);
+    projects.value = List<ProjectRecord>.unmodifiable(next);
+    for (final id in added) {
+      _log(by: by, projectId: id, employeeIds: [employeeId], action: AllocationAction.allocated, note: note);
+    }
+    for (final id in released) {
+      _log(by: by, projectId: id, employeeIds: [employeeId], action: AllocationAction.released, note: note);
+    }
+    return (added: added.length, released: released.length);
+  }
+
+  /// Bulk action: puts every allowed employee in [employeeIds] on
+  /// [projectId]. People already on it or outside the user's rights are
+  /// reported, not changed.
+  Future<AllocationResult> allocate({
+    required AppUser by,
+    required List<String> employeeIds,
+    required String projectId,
+    String note = '',
+  }) =>
+      _changeMembers(by: by, employeeIds: employeeIds, projectId: projectId, add: true, note: note);
+
+  /// Bulk action: takes every allowed employee in [employeeIds] off
+  /// [projectId].
+  Future<AllocationResult> release({
+    required AppUser by,
+    required List<String> employeeIds,
+    required String projectId,
+    String note = '',
+  }) =>
+      _changeMembers(by: by, employeeIds: employeeIds, projectId: projectId, add: false, note: note);
+
+  Future<AllocationResult> _changeMembers({
+    required AppUser by,
+    required List<String> employeeIds,
+    required String projectId,
+    required bool add,
+    required String note,
+  }) async {
+    if (!by.role.canManageOrganization && !by.role.canEditTeamProfiles) {
+      throw const AdminException('Only Team Leads and the HRD team can allocate projects.');
+    }
+    final before = byId(projectId);
+    if (before == null) throw const AdminException('This project no longer exists.');
+    if (before.status == ProjectStatus.completed) {
+      throw AdminException('${before.code} is completed: its team can no longer change.');
+    }
+    if (note.trim().length > ProjectRules.allocationNoteMax) {
+      throw const AdminException('Keep the note under ${ProjectRules.allocationNoteMax} characters.');
+    }
+    await apiPause(450);
+    // Read again after the pause: someone may have changed the team.
+    final project = byId(projectId);
+    if (project == null) throw const AdminException('This project no longer exists.');
+    final employees = EmployeeRepository.instance;
+    final members = [...project.memberIds];
+    final changed = <String>[];
+    final unchanged = <String>[];
+    final notAllowed = <String>[];
+    for (final id in employeeIds.toSet()) {
+      final e = employees.byId(id);
+      final allowed = e != null && (add ? canAllocate(by, e) : canRelease(by, e));
+      if (!allowed) {
+        notAllowed.add(id);
+        continue;
+      }
+      if (members.contains(id) == add) {
+        unchanged.add(id);
+        continue;
+      }
+      if (add) {
+        members.add(id);
+      } else {
+        members.remove(id);
+      }
+      changed.add(id);
+    }
+    var result = project;
+    if (changed.isNotEmpty) {
+      result = project.copyWith(memberIds: List<String>.unmodifiable(members));
+      projects.value = List<ProjectRecord>.unmodifiable([
+        for (final p in projects.value) p.id == projectId ? result : p,
+      ]);
+      _log(
+        by: by,
+        projectId: projectId,
+        employeeIds: changed,
+        action: add ? AllocationAction.allocated : AllocationAction.released,
+        note: note,
+      );
+    }
+    return AllocationResult(
+      project: result,
+      changed: List<String>.unmodifiable(changed),
+      unchanged: List<String>.unmodifiable(unchanged),
+      notAllowed: List<String>.unmodifiable(notAllowed),
+    );
+  }
+
+  void _log({
+    required AppUser by,
+    required String projectId,
+    required List<String> employeeIds,
+    required AllocationAction action,
+    required String note,
+  }) {
+    var number = highestNumber(allocations.value.map((a) => a.id));
+    final now = DateTime.now();
+    final entries = [
+      for (final id in employeeIds)
+        ProjectAllocation(
+          id: 'ALC-${(++number).toString().padLeft(4, '0')}',
+          projectId: projectId,
+          employeeId: id,
+          action: action,
+          byId: by.id,
+          byName: by.name,
+          at: now,
+          note: note.trim(),
+          batchSize: employeeIds.length,
+        ),
+    ];
+    allocations.value = List<ProjectAllocation>.unmodifiable([...entries.reversed, ...allocations.value]);
   }
 
   /// Competency → highest level any project needs (for the dashboard).

@@ -339,13 +339,12 @@ class _EmployeeRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final e = employee;
     final cell = HomeText.body(14, color: HomeColors.body);
+    final projectCount = e.projects.length;
     final second = showDepartment
         ? e.department
-        : (e.projects.isEmpty
-            ? '—'
-            : e.projects.length == 1
-                ? e.projects.first
-                : '${e.projects.first} +${e.projects.length - 1}');
+        : (projectCount == 0
+            ? 'Not on a project'
+            : '$projectCount · ${e.projects.join(', ')}');
     const flex = _EmployeeTable._flex;
 
     return InkWell(
@@ -384,8 +383,15 @@ class _EmployeeRow extends StatelessWidget {
             ),
             Expanded(
               flex: flex[1],
-              child: Text(second,
-                  maxLines: 2, overflow: TextOverflow.ellipsis, style: cell),
+              child: Tooltip(
+                message: projectCount == 0 ? 'Not on a project' : e.projects.join('\n'),
+                child: Text(second,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: !showDepartment && projectCount == 0
+                        ? HomeText.body(14, color: HomeColors.muted)
+                        : cell),
+              ),
             ),
             Expanded(
               flex: flex[2],
@@ -430,7 +436,7 @@ class _EmployeeRow extends StatelessWidget {
               flex: flex[6],
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: StatusPill.employee(e.status),
+                child: _statusWithProjects(e),
               ),
             ),
           ],
@@ -438,6 +444,22 @@ class _EmployeeRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "On 2 projects" while allocated (the number of projects is what Team
+/// Leads and HRD staff by); otherwise Available / On leave.
+Widget _statusWithProjects(EmployeeRecord e) {
+  final count = e.projects.length;
+  if (e.status != EmployeeStatus.allocated || count == 0) return StatusPill.employee(e.status);
+  return Tooltip(
+    message: e.projects.join('\n'),
+    child: StatusPill(
+      label: count == 1 ? 'On 1 project' : 'On $count projects',
+      icon: Icons.work_outline_rounded,
+      background: HomeColors.blueTint,
+      foreground: HomeColors.blueDeep,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------- cards
@@ -521,7 +543,9 @@ class _EmployeeCard extends StatelessWidget {
               const SizedBox(height: 6),
               MeterBar(value: e.readiness / 100, height: 7),
               const SizedBox(height: 12),
-              Text('${e.skillCount} skills · ${e.gapCount} gaps · Reports to ${e.reportsTo}',
+              Text(
+                  '${e.projects.length} ${e.projects.length == 1 ? 'project' : 'projects'} · '
+                  '${e.skillCount} skills · ${e.gapCount} gaps · Reports to ${e.reportsTo}',
                   style: HomeText.body(13, color: HomeColors.body)),
               const Spacer(),
               const SizedBox(height: 12),
@@ -529,7 +553,7 @@ class _EmployeeCard extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  StatusPill.employee(e.status),
+                  _statusWithProjects(e),
                   for (final skill in e.topSkills.take(2))
                     StatusPill(
                       label: skill,

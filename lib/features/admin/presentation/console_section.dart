@@ -12,7 +12,13 @@ enum ConsoleSection {
     'All Employees',
     'Employees',
     Icons.groups_2_outlined,
-    'Every employee with their readiness and gaps. Open one for the full profile.',
+    'Every employee with their readiness, gaps and projects. Select several to allocate a project.',
+  ),
+  reports(
+    'Dashboards & Reports',
+    'Reports',
+    Icons.insights_rounded,
+    'Your own dashboards of competency, readiness, gap and project reports, exportable to Excel.',
   ),
   changes(
     'Profile Changes',

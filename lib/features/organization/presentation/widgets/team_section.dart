@@ -18,14 +18,19 @@ class TeamSection extends StatelessWidget {
     required this.members,
     required this.onOpenEmployee,
     this.onOpenDirectory,
+    this.onOpenReports,
   });
 
   final String department;
   final List<EmployeeRecord> members;
   final ValueChanged<EmployeeRecord> onOpenEmployee;
 
-  /// Opens the full team directory page (profiles, filters, gaps).
+  /// Opens the full team directory page (profiles, filters, gaps, bulk
+  /// project allocation).
   final VoidCallback? onOpenDirectory;
+
+  /// Opens the team's dashboards & reports (own department only).
+  final VoidCallback? onOpenReports;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +40,8 @@ class TeamSection extends StatelessWidget {
         : (members.fold(0, (sum, e) => sum + e.readiness) / count).round();
     final openGaps = members.fold(0, (sum, e) => sum + e.gapCount);
     final available = members.where((e) => e.status == EmployeeStatus.available).length;
+    final directory = onOpenDirectory;
+    final reports = onOpenReports;
     final width = MediaQuery.sizeOf(context).width;
     final columns = width >= 900 ? 4 : (width >= 480 ? 2 : 1);
 
@@ -43,15 +50,24 @@ class TeamSection extends StatelessWidget {
       children: [
         SectionHeader(
           title: 'MY TEAM',
-          subtitle: '$department · $count people. Their skills, readiness and gaps. '
+          subtitle: '$department · $count people. Their skills, readiness, gaps and projects. '
               'Only Team Leads and HRD can see this. Open a person for their full '
-              'profile, project gaps and level-up requests.',
-          trailing: onOpenDirectory == null
+              'profile, project allocation and level-up requests; allocate several '
+              'people at once from the team directory.',
+          trailing: directory == null && reports == null
               ? null
-              : PillButton(
-                  label: 'Open team directory',
-                  variant: PillVariant.outline,
-                  onPressed: onOpenDirectory,
+              : Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    if (reports != null) PillButton(label: 'Team dashboards & reports', onPressed: reports),
+                    if (directory != null)
+                      PillButton(
+                        label: 'Open team directory',
+                        variant: PillVariant.outline,
+                        onPressed: directory,
+                      ),
+                  ],
                 ),
         ),
         const SizedBox(height: 32),

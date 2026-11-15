@@ -634,11 +634,12 @@ class ModeSwitch<T> extends StatelessWidget {
     final index = math.max(0, options.indexWhere((o) => o.value == selected));
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = math.min(constraints.maxWidth, 180.0 * options.length);
+        final width = math.max(0.0, math.min(constraints.maxWidth, 180.0 * options.length));
         // Inner width = width minus the 4px padding AND the 1px border on
-        // each side (the border was missed before: 2px overflow).
+        // each side (the border was missed before: 2px overflow). Never
+        // negative, however narrow the window gets.
         const inset = _modePadding + _modeBorder;
-        final optionWidth = (width - inset * 2) / options.length;
+        final optionWidth = math.max(0.0, (width - inset * 2) / options.length);
         final showIcons = optionWidth >= 128;
         return Align(
           alignment: Alignment.centerLeft,
@@ -1380,6 +1381,51 @@ class _TurnInState extends State<TurnIn> with SingleTickerProviderStateMixin {
   }
 }
 
+// ======================================================= minimum width
+
+/// Lays [child] out at least [minWidth] wide. In a narrower window (e.g.
+/// the browser's Inspect panel docked over the page) the content scrolls
+/// sideways instead of being squeezed below what it can lay out – no
+/// overflow stripes and no negative sizes.
+///
+/// The widget tree is the same at every width, so the content keeps its
+/// state when the window crosses [minWidth]. Don't put it around content
+/// that uses ScrollReveal (it would find this scroll view instead of the
+/// page's).
+class MinWidthBox extends StatelessWidget {
+  const MinWidthBox({super.key, required this.child, this.minWidth = 320});
+
+  final Widget child;
+  final double minWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    // Widgets inside that size themselves from the window width
+    // (MediaQuery) see at least [minWidth] too, so their sums can't go
+    // negative either. Same data as the window when it is wide enough.
+    final media = MediaQuery.of(context);
+    final screen = media.size;
+    final data = screen.width >= minWidth ? media : media.copyWith(size: Size(minWidth, screen.height));
+    return MediaQuery(
+      data: data,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final available = constraints.maxWidth;
+          final bounded = available.isFinite;
+          final fits = !bounded || available >= minWidth;
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            // Wide enough: not scrollable (and doesn't take drags or wheel).
+            physics: fits ? const NeverScrollableScrollPhysics() : const ClampingScrollPhysics(),
+            child: SizedBox(width: bounded ? math.max(minWidth, available) : minWidth, child: child),
+          );
+        },
+      ),
+    );
+  }
+}
+
 // ===================================================== panels & dialogs
 
 /// Opens [builder]'s content in a panel hinged on the right edge of the
@@ -1511,7 +1557,10 @@ class _SwingPanelState extends State<_SwingPanel> {
                       child: SingleChildScrollView(
                         controller: _scroll,
                         padding: EdgeInsets.fromLTRB(full ? 16 : 24, 20, full ? 16 : 24, 32),
-                        child: SmoothWheelScroll(controller: _scroll, child: widget.builder(context)),
+                        child: SmoothWheelScroll(
+                          controller: _scroll,
+                          child: MinWidthBox(child: widget.builder(context)),
+                        ),
                       ),
                     ),
                   ),

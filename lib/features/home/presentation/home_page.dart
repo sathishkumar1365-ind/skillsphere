@@ -11,6 +11,7 @@ import '../../admin/presentation/employees/employee_profile_page.dart';
 import '../../admin/presentation/widgets/admin_common.dart';
 import '../../organization/data/org_models.dart';
 import '../../organization/presentation/widgets/team_section.dart';
+import '../../reports/presentation/reports_view.dart';
 import '../../training_plan/data/training_plans.dart';
 import '../../training_plan/presentation/training_plan_form.dart';
 import '../../training_plan/presentation/training_plan_section.dart';
@@ -118,6 +119,10 @@ class _HomePageState extends State<HomePage> {
     Navigator.of(context).push(AllEmployeesPage.route(user: widget.user, onLogout: widget.onLogout));
   }
 
+  void _openTeamReports() {
+    Navigator.of(context).push(TeamReportsPage.route(user: widget.user, onLogout: widget.onLogout));
+  }
+
   Future<void> _planFor(EmployeeProfile profile, GapEntry gap) async {
     final saved = await showTrainingPlanForm(context: context, user: widget.user, employee: profile, gap: gap);
     if (saved != null && mounted) {
@@ -214,6 +219,7 @@ class _HomePageState extends State<HomePage> {
                     onOpenEmployee:
                         widget.onOpenEmployee ?? (EmployeeRecord e) => _openProfile(e.id),
                     onOpenDirectory: _openTeamDirectory,
+                    onOpenReports: _openTeamReports,
                   ),
                 )
               : TeamSection(
@@ -221,6 +227,7 @@ class _HomePageState extends State<HomePage> {
                   members: widget.team,
                   onOpenEmployee: widget.onOpenEmployee ?? (EmployeeRecord e) => _openProfile(e.id),
                   onOpenDirectory: _openTeamDirectory,
+                  onOpenReports: _openTeamReports,
                 ),
         ),
     ];

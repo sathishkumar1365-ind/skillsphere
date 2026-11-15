@@ -26,6 +26,7 @@ import '../../data/projects.dart';
 import '../admin_console_page.dart' show ConsoleNoAccess;
 import '../approvals/request_level_up_dialog.dart';
 import '../onboarding/employee_form.dart';
+import '../projects/allocate_projects_panel.dart';
 import '../widgets/admin_common.dart';
 import '../widgets/console_top_bar.dart';
 import 'acquired_competency_table.dart';
@@ -94,6 +95,34 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
     showAdminMessage(context, 'Sent to HR: $name → L${request.toLevel} for ${profile.firstName}.');
   }
 
+  Future<void> _allocate(EmployeeProfile profile) async {
+    final saved = await showAllocateProjects(context: context, user: widget.user, employee: profile);
+    if (!saved || !mounted) return;
+    final count = ProjectRepository.instance.projectCountFor(profile.id);
+    showAdminMessage(
+      context,
+      'Allocation saved: ${profile.firstName} is on $count ${count == 1 ? 'project' : 'projects'}.',
+    );
+  }
+
+  Future<void> _release(EmployeeProfile profile, ProjectRecord project) async {
+    final ok = await showConfirm(
+      context: context,
+      title: 'Release from ${project.code}?',
+      message: '${profile.name} comes off "${project.name}". Its needs no longer count as '
+          '${profile.firstName}\'s gaps. You can allocate again at any time.',
+      confirmLabel: 'Release',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    try {
+      await ProjectRepository.instance.release(by: widget.user, employeeIds: [profile.id], projectId: project.id);
+      if (mounted) showAdminMessage(context, '${profile.firstName} released from ${project.code}.');
+    } on AdminException catch (e) {
+      if (mounted) showAdminMessage(context, e.message);
+    }
+  }
+
   Future<void> _plan(EmployeeProfile profile, GapEntry gap) async {
     final saved = await showTrainingPlanForm(context: context, user: widget.user, employee: profile, gap: gap);
     if (saved != null && mounted) {
@@ -154,6 +183,8 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
         final insight = Insights.of(profile);
         final canEdit = _employees.canEdit(user, profile);
         final canRequest = _employees.canRequestLevelUp(user, profile);
+        final canAllocate = ProjectRepository.instance.canAllocate(user, profile);
+        final canRelease = ProjectRepository.instance.canRelease(user, profile);
         final own = profile.id == user.id;
         const competenciesIndex = 1;
         const gapsIndex = 2;
@@ -167,6 +198,7 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
               insight: insight,
               onUpdate: canEdit ? () => _update(profile) : null,
               onRequest: canRequest ? () => _request(profile) : null,
+              onAllocate: canAllocate ? () => _allocate(profile) : null,
               onSeeGaps: () =>
                   _page.currentState?.scrollToSection(insight.gapCount > 0 ? gapsIndex : competenciesIndex),
             ),
@@ -197,7 +229,14 @@ class _EmployeeProfilePageState extends State<EmployeeProfilePage> {
             label: 'Plan',
             child: TrainingPlanSection(viewer: user, employeeId: profile.id),
           ),
-          SphereSection(label: 'Projects', child: _ProjectsSection(insight: insight)),
+          SphereSection(
+            label: 'Projects',
+            child: _ProjectsSection(
+              insight: insight,
+              onAllocate: canAllocate ? () => _allocate(profile) : null,
+              onRelease: canRelease ? (project) => _release(profile, project) : null,
+            ),
+          ),
           SphereSection(
             label: 'Certificates',
             child: _CertificatesSection(profile: profile, onDownload: _download),
@@ -231,6 +270,7 @@ class _Hero extends StatelessWidget {
     required this.insight,
     required this.onUpdate,
     required this.onRequest,
+    required this.onAllocate,
     required this.onSeeGaps,
   });
 
@@ -238,12 +278,15 @@ class _Hero extends StatelessWidget {
   final EmployeeInsight insight;
   final VoidCallback? onUpdate;
   final VoidCallback? onRequest;
+  final VoidCallback? onAllocate;
   final VoidCallback onSeeGaps;
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final identity = TurnIn(child: _IdentityCard(profile: profile, onUpdate: onUpdate, onRequest: onRequest));
+    final identity = TurnIn(
+      child: _IdentityCard(profile: profile, onUpdate: onUpdate, onRequest: onRequest, onAllocate: onAllocate),
+    );
     final readiness = TurnIn(
       delay: const Duration(milliseconds: 160),
       child: _ReadinessCard(insight: insight, onSeeGaps: onSeeGaps),
@@ -268,17 +311,20 @@ class _Hero extends StatelessWidget {
 }
 
 class _IdentityCard extends StatelessWidget {
-  const _IdentityCard({required this.profile, required this.onUpdate, required this.onRequest});
+  const _IdentityCard({required this.profile, required this.onUpdate, required this.onRequest, required this.onAllocate});
 
   final EmployeeProfile profile;
   final VoidCallback? onUpdate;
   final VoidCallback? onRequest;
+  final VoidCallback? onAllocate;
 
   @override
   Widget build(BuildContext context) {
     final employees = EmployeeRepository.instance;
     final update = onUpdate;
     final request = onRequest;
+    final allocate = onAllocate;
+    final projectCount = ProjectRepository.instance.projectCountFor(profile.id);
     final narrow = MediaQuery.sizeOf(context).width < 600;
     return LiftCard(
       padding: EdgeInsets.all(narrow ? 20 : 28),
@@ -333,6 +379,14 @@ class _IdentityCard extends StatelessWidget {
                           background: HomeColors.blueTint,
                           foreground: HomeColors.blueDeep,
                         ),
+                        StatusPill(
+                          label: projectCount == 0
+                              ? 'Not on a project'
+                              : '$projectCount ${projectCount == 1 ? 'project' : 'projects'} allocated',
+                          icon: Icons.assignment_ind_outlined,
+                          background: projectCount == 0 ? HomeColors.orangeTint : HomeColors.neutralTint,
+                          foreground: projectCount == 0 ? HomeColors.orangeText : HomeColors.ink,
+                        ),
                         if (profile.onLeave)
                           const StatusPill(
                             label: 'On leave',
@@ -378,13 +432,15 @@ class _IdentityCard extends StatelessWidget {
                   '${profile.missingFields.length == 1 ? 'is' : 'are'} missing.',
             ),
           ],
-          if (update != null || request != null) ...[
+          if (update != null || request != null || allocate != null) ...[
             const SizedBox(height: 20),
             Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
                 if (update != null) PillButton(label: 'Update profile', onPressed: update),
+                if (allocate != null)
+                  PillButton(label: 'Allocate projects', variant: PillVariant.outline, onPressed: allocate),
                 if (request != null)
                   PillButton(label: 'Request level-up', variant: PillVariant.outline, onPressed: request),
               ],
@@ -680,26 +736,35 @@ class _GapsSection extends StatelessWidget {
 // ============================================================= projects
 
 class _ProjectsSection extends StatelessWidget {
-  const _ProjectsSection({required this.insight});
+  const _ProjectsSection({required this.insight, required this.onAllocate, required this.onRelease});
 
   final EmployeeInsight insight;
+  final VoidCallback? onAllocate;
+  final ValueChanged<ProjectRecord>? onRelease;
 
   @override
   Widget build(BuildContext context) {
     final projects = insight.projects;
     final width = MediaQuery.sizeOf(context).width;
+    final allocate = onAllocate;
+    final count = projects.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SectionHeader(
           title: 'PROJECTS',
-          subtitle: 'Projects ${insight.profile.firstName} is on, and what each one needs from their role.',
+          subtitle: '${insight.profile.firstName} is allocated to $count open '
+              '${count == 1 ? 'project' : 'projects'}. What each one needs from their role feeds the gaps.'
+              '${allocate != null ? ' Allocate or release projects here.' : ''}',
+          trailing: allocate == null ? null : PillButton(label: 'Allocate projects', onPressed: allocate),
         ),
         const SizedBox(height: 26),
         if (projects.isEmpty)
-          const EmptyState(
+          EmptyState(
             title: 'Not on a project yet',
-            message: 'HRD or the Team Lead adds projects in Update profile.',
+            message: allocate == null
+                ? 'HRD or the Team Lead allocates projects.'
+                : 'Use "Allocate projects" to put ${insight.profile.firstName} on one.',
             icon: Icons.work_off_outlined,
           )
         else
@@ -707,7 +772,14 @@ class _ProjectsSection extends StatelessWidget {
             columns: width >= 980 ? 2 : 1,
             spacing: 18,
             runSpacing: 18,
-            children: [for (final p in projects) _ProjectCard(project: p, profile: insight.profile)],
+            children: [
+              for (final p in projects)
+                _ProjectCard(
+                  project: p,
+                  profile: insight.profile,
+                  onRelease: onRelease == null ? null : () => onRelease?.call(p),
+                ),
+            ],
           ),
       ],
     );
@@ -715,10 +787,11 @@ class _ProjectsSection extends StatelessWidget {
 }
 
 class _ProjectCard extends StatelessWidget {
-  const _ProjectCard({required this.project, required this.profile});
+  const _ProjectCard({required this.project, required this.profile, this.onRelease});
 
   final ProjectRecord project;
   final EmployeeProfile profile;
+  final VoidCallback? onRelease;
 
   @override
   Widget build(BuildContext context) {
@@ -734,6 +807,8 @@ class _ProjectCard extends StatelessWidget {
     }
     final match = needed == 0 ? 100 : (reached * 100 / needed).round();
     final manager = employees.byId(project.managerId);
+    final allocation = ProjectRepository.instance.lastAllocation(project.id, profile.id);
+    final release = onRelease;
 
     return LiftCard(
       padding: const EdgeInsets.all(22),
@@ -798,6 +873,38 @@ class _ProjectCard extends StatelessWidget {
                     ),
               ],
             ),
+          if (allocation != null || release != null) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: HomeColors.cardBorder),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.assignment_ind_outlined, size: 16, color: HomeColors.muted),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    allocation == null
+                        ? 'Team member from the earlier records'
+                        : '${allocation.action.label} ${dayMonthYear(allocation.at)} by ${allocation.byName}'
+                            '${allocation.note.isEmpty ? '' : ' · "${allocation.note}"'}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: HomeText.body(12.5, color: HomeColors.muted, height: 1.4),
+                  ),
+                ),
+                if (release != null)
+                  TextButton.icon(
+                    onPressed: release,
+                    icon: const Icon(Icons.remove_circle_outline_rounded, size: 17),
+                    label: const Text('Release'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: HomeColors.ink,
+                      textStyle: HomeText.body(13, weight: FontWeight.w700),
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

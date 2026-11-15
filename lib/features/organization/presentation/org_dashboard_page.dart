@@ -145,6 +145,7 @@ class _OrgDashboardPageState extends State<OrgDashboardPage> {
           onAddCompetency: user.role.canManageCompetencies
               ? () => _scrollTo(_competenciesIndex)
               : null,
+          onOpenReports: user.role.canManageOrganization ? () => _openConsole(ConsoleSection.reports) : null,
         ),
       ),
       SphereSection(

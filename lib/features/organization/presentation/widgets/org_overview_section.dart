@@ -18,6 +18,7 @@ class OrgOverviewSection extends StatelessWidget {
     required this.onViewEmployees,
     required this.onViewShortages,
     this.onAddCompetency,
+    this.onOpenReports,
   });
 
   final OrgData data;
@@ -27,6 +28,9 @@ class OrgOverviewSection extends StatelessWidget {
 
   /// Shows an "Add competency" button when set (HRD only).
   final VoidCallback? onAddCompetency;
+
+  /// Shows a "Dashboards & reports" button when set (HRD only).
+  final VoidCallback? onOpenReports;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +50,7 @@ class OrgOverviewSection extends StatelessWidget {
             onViewEmployees: onViewEmployees,
             onViewShortages: onViewShortages,
             onAddCompetency: onAddCompetency,
+            onOpenReports: onOpenReports,
           ),
         );
         final globe = Center(
@@ -93,6 +98,7 @@ class _Intro extends StatelessWidget {
     required this.onViewEmployees,
     required this.onViewShortages,
     required this.onAddCompetency,
+    required this.onOpenReports,
   });
 
   final OrgData data;
@@ -101,6 +107,9 @@ class _Intro extends StatelessWidget {
   final VoidCallback onViewEmployees;
   final VoidCallback onViewShortages;
   final VoidCallback? onAddCompetency;
+
+  /// Opens Dashboards & Reports in the HRD console.
+  final VoidCallback? onOpenReports;
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +155,12 @@ class _Intro extends StatelessWidget {
               onPressed: onViewShortages,
               variant: PillVariant.outline,
             ),
+            if (onOpenReports != null)
+              PillButton(
+                label: 'Dashboards & reports',
+                onPressed: onOpenReports,
+                variant: PillVariant.outline,
+              ),
             if (onAddCompetency != null)
               PillButton(
                 label: 'Add competency',
