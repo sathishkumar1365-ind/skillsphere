@@ -200,8 +200,8 @@ class CrowdGroupChange {
 
   /// "Research & Development › Vehicle Software › Functional Safety"
   String get path => [
-        if (grandParentDisplayName != null) grandParentDisplayName!,
-        if (parentDisplayName != null) parentDisplayName!,
+        ?grandParentDisplayName,
+        ?parentDisplayName,
         displayName,
       ].join(' › ');
 
@@ -280,7 +280,7 @@ class CrowdService {
     );
   }
 
-  /// Simulated "GET <crowd>/rest/usermanagement/1/search?entity-type=user".
+  /// Simulated `GET <crowd>/rest/usermanagement/1/search?entity-type=user`.
   Future<String> testConnection({
     required AppUser by,
     required CrowdSettings draft,

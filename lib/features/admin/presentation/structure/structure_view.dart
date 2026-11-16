@@ -855,7 +855,7 @@ class _MoveDepartmentFormState extends State<_MoveDepartmentForm> {
         InfoNote(
           text: 'Now in ${currentDivision?.name ?? '—'} › ${current?.name ?? '—'}. $people '
               '${people == 1 ? 'person' : 'people'} will get a group change'
-              '${crossesDivision ? ' and a division change (to ${targetDivision?.name})' : ''} in their history.',
+              '${targetDivision != null && crossesDivision ? ' and a division change (to ${targetDivision.name})' : ''} in their history.',
         ),
         const SizedBox(height: 16),
         LabeledField(

@@ -253,8 +253,9 @@ class _GlobeScene extends ChangeNotifier {
       _ProjectedPoint? previous;
 
       void flush() {
-        if (run.length > 1 && runInFront != null) {
-          (runInFront! ? front : back).addPolygon(run, false);
+        final inFront = runInFront;
+        if (run.length > 1 && inFront != null) {
+          (inFront ? front : back).addPolygon(run, false);
         }
       }
 

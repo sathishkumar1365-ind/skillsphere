@@ -10,7 +10,6 @@
 // The five APPROVED sample requests in admin_sample_data.dart
 // (APR-0001 … APR-0005) are reproduced exactly – keep them in step.
 
-import 'competency_models.dart';
 import 'competency_sample_data.dart';
 import 'level_hours_policy.dart';
 import 'level_progress.dart';

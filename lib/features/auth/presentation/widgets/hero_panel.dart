@@ -26,7 +26,7 @@ class HeroPanel extends StatelessWidget {
                   AppAssets.loginHero,
                   fit: BoxFit.cover,
                   alignment: Alignment.topCenter,
-                  errorBuilder: (_, __, ___) => const _HeroPlaceholder(),
+                  errorBuilder: (_, _, _) => const _HeroPlaceholder(),
                 )
               else
                 const _HeroPlaceholder(),

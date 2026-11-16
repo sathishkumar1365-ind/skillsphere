@@ -317,7 +317,7 @@ class _ReportsViewState extends State<ReportsView> {
                       try {
                         target = await _repo.create(by: _user, name: 'My dashboard');
                       } on AdminException catch (e) {
-                        if (mounted) showAdminMessage(context, e.message);
+                        if (context.mounted) showAdminMessage(context, e.message);
                         return;
                       }
                       if (!mounted) return;

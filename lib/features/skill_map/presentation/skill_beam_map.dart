@@ -521,7 +521,7 @@ class _SkillBeamMapState extends State<SkillBeamMap> with TickerProviderStateMix
           alignment: Alignment.topCenter,
           children: [
             for (final p in previous) Positioned(left: 0, right: 0, top: 0, child: p),
-            if (current != null) current,
+            ?current,
           ],
         ),
         transitionBuilder: (child, animation) => AnimatedBuilder(

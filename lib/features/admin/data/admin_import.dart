@@ -97,8 +97,7 @@ class ImportPreview<T> {
 
   List<T> get readyValues => [
         for (final r in rows)
-          if (r.status == ImportStatus.ready)
-            if (r.value case final value?) value,
+          if (r.status == ImportStatus.ready) ?r.value,
       ];
 }
 

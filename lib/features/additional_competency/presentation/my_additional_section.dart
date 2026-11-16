@@ -58,7 +58,7 @@ class MyAdditionalSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<List<AdditionalCompetency>>(
       valueListenable: _repository.entries,
-      builder: (context, _, __) {
+      builder: (context, _, _) {
         final mine = _repository.forEmployee(user.id);
         final canAddMore = mine.length < AdditionalCompetencyRules.maxPerEmployee;
 

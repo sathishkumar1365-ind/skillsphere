@@ -5,7 +5,6 @@ import '../../../competency/data/level_hours_policy.dart';
 import '../../../competency/data/level_progress.dart';
 import '../../../competency/presentation/widgets/competency_common.dart';
 import '../../../home/presentation/home_theme.dart';
-import '../../../home/presentation/widgets/home_common.dart';
 import '../../../home/presentation/widgets/scroll_reveal.dart';
 import '../../../organization/presentation/widgets/org_common.dart';
 import '../../data/admin_base.dart';

@@ -244,7 +244,7 @@ enum ReportType {
   ReportView get defaultView => views.first;
 
   /// API value, e.g. "CURRENT_VS_REQUIRED".
-  String get apiValue => this.name.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]}').toUpperCase();
+  String get apiValue => name.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m[0]}').toUpperCase();
 
   static ReportType? tryParse(String value) {
     for (final t in ReportType.values) {

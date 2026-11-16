@@ -15,7 +15,7 @@ class SkyBackground extends StatelessWidget {
     return Image.asset(
       AppAssets.skyBackground,
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => CustomPaint(painter: CloudsPainter()),
+      errorBuilder: (_, _, _) => CustomPaint(painter: CloudsPainter()),
     );
   }
 }

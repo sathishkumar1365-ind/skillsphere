@@ -78,7 +78,7 @@ class _SkillsSectionState extends State<SkillsSection> {
               ),
               layoutBuilder: (current, previous) => Stack(
                 alignment: Alignment.topCenter,
-                children: [...previous, if (current != null) current],
+                children: [...previous, ?current],
               ),
               child: visible.isEmpty
                   ? Padding(

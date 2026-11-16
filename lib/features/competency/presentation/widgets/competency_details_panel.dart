@@ -311,7 +311,7 @@ class _DetailsSheetState extends State<_DetailsSheet> with SingleTickerProviderS
             switchInCurve: HomeMotion.ease,
             transitionBuilder: (child, animation) => FadeTransition(
               opacity: animation,
-              child: SizeTransition(sizeFactor: animation, axisAlignment: -1, child: child),
+              child: SizeTransition(sizeFactor: animation, alignment: Alignment.topLeft, child: child),
             ),
             child: Column(
               key: ValueKey(filter),

@@ -95,8 +95,7 @@ class CompetencyImportResult {
   int count(ImportRowStatus status) => rows.where((r) => r.status == status).length;
 
   List<CompetencyDraft> get drafts => [
-        for (final r in rows)
-          if (r.draft case final draft?) draft,
+        for (final r in rows) ?r.draft,
       ];
 }
 
